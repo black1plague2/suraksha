@@ -40,19 +40,18 @@ import sys
 import time
 from collections import Counter, defaultdict
 
-STAGES = (
-    "@SURAKSHA.CORE.CODE/src/",
+STAGES = (  # git clone first: always current after ALTER GIT REPOSITORY ... FETCH (live ITER-04: stale code ran)
     "@SURAKSHA.CORE.SURAKSHA_REPO/branches/main/src/",
+    "@SURAKSHA.CORE.CODE/src/",
 )
 DST = "/tmp/suraksha_src"
+PROC_VERSION = "iter04-batch-gitfirst"  # bump when the proc body changes; shows in the returned JSON
 
 
 def ensure_pkg(session):
-    try:
-        import suraksha  # noqa: F401
-        return "imports"
-    except ImportError:
-        pass
+    # Never trust an already-imported copy: a warm sandbox can keep an old version between calls.
+    for m in [m for m in sys.modules if m == "suraksha" or m.startswith("suraksha.")]:
+        del sys.modules[m]
     last = None
     for base in STAGES:
         try:
@@ -191,7 +190,7 @@ def run(session, seed):
             tn += 1
     pos, neg = tp + fn, fp + tn
     return json.dumps({
-        "seed": int(seed), "package_from": how, "requests": len(results),
+        "seed": int(seed), "package_from": how, "proc_version": PROC_VERSION, "requests": len(results),
         "confusion": {"tp": tp, "fn": fn, "fp": fp, "tn": tn},
         "detection_rate": round(tp / pos, 4) if pos else 0.0,
         "false_positive_rate": round(fp / neg, 4) if neg else 0.0,

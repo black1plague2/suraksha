@@ -42,3 +42,7 @@ DECIDE_CASE transaction + `?` binds in owner's-rights proc · container runtime 
 - Fix (master): `store.snowflake.batch_values_insert` turns single-row qmark `INSERT … VALUES (?, …)` + N rows into multi-row
   INSERTs (chunk 300, None → NULL); shims' executemany use it, falling back per-row for `INSERT … SELECT`. Simulated full
   registry load: **~6,000 → 37 statements**, no None params. +1 test; **340 passed.**
+- Re-run still showed per-row `INSERT INTO REGISTRY.COMPANIES` → the OLD proc body ran (new shim would batch, or fail
+  importing `batch_values_insert` from a stale package). Hardening (master): procs load the package from the git clone FIRST
+  (current right after FETCH; `@CORE.CODE` copy only as fallback), purge any already-imported `suraksha*` modules each call
+  (warm sandbox), and return `proc_version` ("iter04-batch-gitfirst") in their JSON so the running version is visible.

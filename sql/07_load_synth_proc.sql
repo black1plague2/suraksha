@@ -41,11 +41,12 @@ import json
 import os
 import sys
 
-STAGES = (
-    "@SURAKSHA.CORE.CODE/src/",
+STAGES = (  # git clone first: always current after ALTER GIT REPOSITORY ... FETCH (live ITER-04: stale code ran)
     "@SURAKSHA.CORE.SURAKSHA_REPO/branches/main/src/",
+    "@SURAKSHA.CORE.CODE/src/",
 )
 DST = "/tmp/suraksha_src"
+PROC_VERSION = "iter04-batch-gitfirst"  # bump when the proc body changes; shows in the returned JSON
 
 TRUNCATE_TABLES = [
     "SURAKSHA.REGISTRY.ADDRESSES", "SURAKSHA.REGISTRY.COMPANIES", "SURAKSHA.REGISTRY.PERSONS",
@@ -55,11 +56,9 @@ TRUNCATE_TABLES = [
 
 
 def ensure_pkg(session):
-    try:
-        import suraksha  # noqa: F401  (works if the package was provided through IMPORTS)
-        return "imports"
-    except ImportError:
-        pass
+    # Never trust an already-imported copy: a warm sandbox can keep an old version between calls.
+    for m in [m for m in sys.modules if m == "suraksha" or m.startswith("suraksha.")]:
+        del sys.modules[m]
     last = None
     for base in STAGES:
         try:
@@ -144,7 +143,7 @@ def run(session, seed):
     store.load_registry(ds.companies, ds.persons, ds.roles, ds.corp_owners, ds.addresses,
                         ds.transactions, ds.policy_clauses)
     return json.dumps({
-        "seed": int(seed), "package_from": how,
+        "seed": int(seed), "package_from": how, "proc_version": PROC_VERSION,
         "companies": len(ds.companies), "persons": len(ds.persons), "roles": len(ds.roles),
         "corp_owners": len(ds.corp_owners), "addresses": len(ds.addresses),
         "transactions": len(ds.transactions), "policy_clauses": len(ds.policy_clauses),
