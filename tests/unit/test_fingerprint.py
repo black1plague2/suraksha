@@ -156,7 +156,7 @@ def test_to_entry_core_keys_only_and_pledged_at():
     r = req()
     fp = fp_of(r)
     e = to_entry(fp)
-    assert set(e.keys) == {"exact", "cargo", "bl", "blv"}
+    assert set(e.keys) == {"exact", "cargo", "bl", "blv", "bln"}
     assert e.pledged_at == r.submitted_at and e.borrower_token == fp.borrower_token
     assert e.entry_id == "CE-R1" and to_entry(fp, "X").entry_id == "X"
 
@@ -196,3 +196,47 @@ def test_old_entry_without_blv_still_matches_exact():
     st.add_consortium_entry(e)
     ms = match(fp_of(req(rid="R2", bank="BANK_B"), "REG-2"), st)
     assert len(ms) == 1 and ms[0].match_type == MatchType.EXACT
+
+
+def _with_invoice(r, bl_ref):
+    r.documents.append(Document(f"{r.request_id}-INV", r.request_id, DocType.INVOICE,
+                                f"COMMERCIAL INVOICE\nInvoice No: I1\nB/L Ref: {bl_ref}\n"))
+    return r
+
+
+def test_transshipment_new_bl_ref_original_is_fuzzy_bln_ref():
+    st = MemoryStore()
+    pledge(st, req(), eid="E1")
+    r2 = _with_invoice(req(rid="R2", bank="BANK_B", bl="HUB-9", vessel="FEEDER HOPE", voyage="310W"), "bl 12345")
+    fp = fp_of(r2, "REG-2")
+    assert "bln_ref" in fp.keys and "bln_ref" not in to_entry(fp).keys
+    ms = match(fp, st)
+    assert len(ms) == 1 and ms[0].match_type == MatchType.FUZZY
+    assert ms[0].similarity == 0.8 and ms[0].matched_keys == ["bln_ref"]
+
+
+def test_same_bl_different_vessel_and_voyage_is_fuzzy_bln():
+    st = MemoryStore()
+    pledge(st, req(), eid="E1")
+    ms = match(fp_of(req(rid="R2", bank="BANK_B", vessel="OTHER SHIP", voyage="999W"), "REG-2"), st)
+    assert len(ms) == 1 and ms[0].similarity == 0.8 and ms[0].matched_keys == ["bln"]
+
+
+def test_bln_no_false_match_different_commodity_or_same_bank():
+    st = MemoryStore()
+    pledge(st, req(), eid="E1")
+    other = req(rid="R2", bank="BANK_B", vessel="X", voyage="1W", commodity="Basmati Rice")
+    assert match(fp_of(other, "REG-2"), st) == []
+    r3 = _with_invoice(req(rid="R3", bank="BANK_B", bl="HUB-9", vessel="X", voyage="1W", commodity="Basmati Rice"), "BL12345")
+    assert match(fp_of(r3, "REG-2"), st) == []
+    same = _with_invoice(req(rid="R4", bank="BANK_A", bl="HUB-9", vessel="X", voyage="1W"), "BL12345")
+    assert match(fp_of(same), st) == []
+
+
+def test_old_entry_without_bln_never_matches_on_it():
+    st = MemoryStore()
+    e = to_entry(fp_of(req()), "E1")
+    e.keys.pop("bln")
+    st.add_consortium_entry(e)
+    r2 = _with_invoice(req(rid="R2", bank="BANK_B", bl="HUB-9", vessel="X", voyage="1W"), "BL12345")
+    assert match(fp_of(r2, "REG-2"), st) == []

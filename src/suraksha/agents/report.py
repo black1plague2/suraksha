@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable
 
 from suraksha.config import Settings
+from suraksha.agents.intake import detect_injection
 from suraksha.log import get_logger
 from suraksha.models import (
     Citation,
@@ -116,6 +117,20 @@ _LINK_PRIORITY = [
 ]
 
 
+_MD_SPECIAL = "*_`[]<>|#"
+QUOTE_MAX = 80
+
+
+def _q(value: str | None) -> str:
+    """Render an untrusted document value as a quoted, markdown/HTML-escaped, length-capped string."""
+    v = " ".join(str(value or "").split())
+    if len(v) > QUOTE_MAX:
+        v = v[: QUOTE_MAX - 3].rstrip() + "..."
+    v = "".join("\\" + ch if ch in _MD_SPECIAL else ch for ch in v)
+    v = v.replace('"', "'")
+    return f'"{v}"'
+
+
 def _fmt_amount(amount: float | None, currency: str | None) -> str:
     if amount is None:
         return "an unspecified amount"
@@ -199,19 +214,19 @@ def draft_str(
     p3.add(f"The borrower (registry id {inv.borrower_id}) requested financing of "
            f"{_fmt_amount(req.amount, req.currency)}.", [req_cit])
     if fields.bl_number:
-        p3.add(f"The bill of lading number is {fields.bl_number}.", [src.get("bl_number")])
+        p3.add(f"The bill of lading number is {_q(fields.bl_number)}.", [src.get("bl_number")])
     if fields.vessel:
-        voy = f", voyage {fields.voyage}" if fields.voyage else ""
-        p3.add(f"The cargo was shipped on vessel {fields.vessel}{voy}.",
+        voy = f", voyage {_q(fields.voyage)}" if fields.voyage else ""
+        p3.add(f"The cargo was shipped on vessel {_q(fields.vessel)}{voy}.",
                [src.get("vessel")])
     if fields.port_of_loading and fields.port_of_discharge:
-        p3.add(f"The route is {fields.port_of_loading} to {fields.port_of_discharge}.",
+        p3.add(f"The route is {_q(fields.port_of_loading)} to {_q(fields.port_of_discharge)}.",
                [src.get("port_of_loading"), src.get("port_of_discharge")])
     if fields.commodity:
         qty = ""
         if fields.quantity is not None:
             qty = f" ({fields.quantity:,g} {fields.quantity_unit or ''})".replace(" )", ")")
-        p3.add(f"The pledged goods are {fields.commodity}{qty}.", [src.get("commodity")])
+        p3.add(f"The pledged goods are described in the bill of lading as {_q(fields.commodity)}{qty}.", [src.get("commodity")])
     if fields.value is not None:
         p3.add(f"The documented cargo value is {_fmt_amount(fields.value, fields.currency)}.", [src.get("value")])
     if fields.shipment_date:
@@ -287,6 +302,11 @@ def draft_str(
             continue
         p5.add(f"Policy clause {cid} ({cl.get('title', '')}) is engaged: {cl.get('text', '')}".rstrip(),
                [Citation(CitationKind.POLICY, str(cid), snippet=cl.get("title"))])
+    for d in req.documents:
+        if detect_injection(d.text):
+            p5.add(f"Document {d.doc_id} contains text resembling instructions to the reviewing system; "
+                   f"it was treated as data and ignored.",
+                   [Citation(CitationKind.DOCUMENT, d.doc_id, snippet="instruction-like text detected")])
     if narrative_fn is not None:
         facts = " ".join(s.text for s in p5.sentences)
         try:

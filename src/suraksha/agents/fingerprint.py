@@ -7,7 +7,10 @@ Keys (all sha256(salt + "|" + "|".join(parts))):
   blv   : bl_norm | voyage | commodity                      (vessel-independent: vessel typo/rename)
 Extra, fingerprint-only keys "cargo_m1" / "cargo_p1" hold the cargo hash for band-1 / band+1
 so `match` can probe neighbour bands without the raw values. They are stripped in `to_entry`
-(the shared table keeps only exact/cargo/bl/blv).
+(the shared table keeps only exact/cargo/bl/blv/bln).
+  bln   : bln | bl_norm | commodity                        (vessel+voyage independent: transshipment re-issue)
+Private probe key "bln_ref" = same formula over the invoice's cited "B/L Ref" (only when it differs
+from the B/L number); `match` probes the shared "bln" with it. Stripped in `to_entry`.
 """
 from __future__ import annotations
 
@@ -31,11 +34,12 @@ from suraksha.store.base import Store
 
 log = get_logger(__name__)
 
-CORE_KEYS = ("exact", "cargo", "bl", "blv")
+CORE_KEYS = ("exact", "cargo", "bl", "blv", "bln")
 SIM_EXACT = 1.0
 SIM_CARGO = 0.9
 SIM_BL = 0.85
 SIM_NEIGHBOUR = 0.75
+SIM_BLN = 0.8
 
 # --------------------------------------------------------------------------- commodity canonicalisation
 # Ordered (first match wins); patterns run on cleaned upper-case text.
@@ -148,6 +152,20 @@ def _cargo_hash(salt: str, n: dict[str, str], band: int) -> str | None:
     return _h(salt, [n["vessel"], n["voyage"], n["commodity"], str(band)])
 
 
+_BL_REF_RE = re.compile(r"B\s*/\s*L\s*Ref(?:erence)?\s*[:\-]\s*([^\r\n]+)", re.IGNORECASE)
+
+
+def _invoice_bl_ref(req: FinancingRequest) -> str | None:
+    """Temporary local derivation of the invoice 'B/L Ref' (intake owns this; consolidate there)."""
+    from suraksha.models import DocType
+    for d in req.documents:
+        if d.doc_type == DocType.INVOICE:
+            m = _BL_REF_RE.search(d.text or "")
+            if m and m.group(1).strip():
+                return m.group(1).strip()
+    return None
+
+
 def build_fingerprint(
     req: FinancingRequest,
     fields: ExtractedFields,
@@ -177,6 +195,12 @@ def build_fingerprint(
         keys["bl"] = _h(salt, [n["bl_norm"], n["vessel"]])
     if need("blv", ["bl_norm", "voyage", "commodity"]):
         keys["blv"] = _h(salt, ["blv", n["bl_norm"], n["voyage"], n["commodity"]])
+
+    if need("bln", ["bl_norm", "commodity"]):
+        keys["bln"] = _h(salt, ["bln", n["bl_norm"], n["commodity"]])
+    ref = _alnum_upper(fields.bl_ref or _invoice_bl_ref(req))
+    if ref and ref != n.get("bl_norm") and "commodity" in n:
+        keys["bln_ref"] = _h(salt, ["bln", ref, n["commodity"]])
 
     if skipped:
         log.warning("fingerprint_keys_skipped", extra={"ctx": {"request_id": req.request_id, "skipped": skipped}})
@@ -228,13 +252,21 @@ def match(fp: Fingerprint, store: Store) -> list[ConsortiumMatch]:
 
     if core:
         for e in store.find_consortium_by_keys(core, exclude_bank=fp.bank_id):
-            equal = [k for k, v in core.items() if e.keys.get(k) == v]
+            equal = [k for k, v in core.items() if e.keys.get(k) == v and k != "bln"]
             if "exact" in equal:
                 offer(e, MatchType.EXACT, equal, SIM_EXACT)
             elif "cargo" in equal:
                 offer(e, MatchType.FUZZY, equal, SIM_CARGO)
             elif "bl" in equal or "blv" in equal:
                 offer(e, MatchType.FUZZY, equal, SIM_BL)
+            elif "bln" in core and e.keys.get("bln") == core["bln"]:
+                offer(e, MatchType.FUZZY, ["bln"], SIM_BLN)
+
+    bln_vals = [fp.keys[k] for k in ("bln", "bln_ref") if k in fp.keys]
+    if bln_vals:
+        for e in store.find_consortium_by_band("bln", bln_vals, exclude_bank=fp.bank_id):
+            if "bln_ref" in fp.keys and e.keys.get("bln") == fp.keys["bln_ref"]:
+                offer(e, MatchType.FUZZY, ["bln_ref"], SIM_BLN)
 
     neighbours = {fp.keys[k]: k for k in ("cargo_m1", "cargo_p1") if k in fp.keys}
     if neighbours:

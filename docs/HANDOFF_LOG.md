@@ -13,7 +13,11 @@ _(agents append here; master applies and records the resolution)_
 
 ---
 
-## 2026-10-01 · ITER-03 · Snowflake-native (IN PROGRESS)
+## 2026-10-01 · ITER-03 · DONE locally — 322 tests, red-team v1+v2 100%/0% FPR; live Snowflake BUILD started
+- Git repo connected in Snowsight (LS shows sql/00–09). Waiting on Cortex Code PLAN output from the user.
+- Details + ITER-04 backlog: `logs/iterations/ITER-03.md`.
+
+### ITER-03 working notes
 - User works browser-only in Snowsight + Cortex Code online. Account details are kept out of the repo (see local notes); Enterprise edition, role ACCOUNTADMIN.
 - Code → Snowflake via Git repository object. User chose a **public repo** for the hackathon; the user flips visibility
   themselves. sql/06 keeps `GIT_CREDENTIALS` as one removable line. Account identifiers are NOT stored in the repo.

@@ -26,3 +26,9 @@
 - New shared key `blv` = H(salt | "blv" | bl_norm | voyage | commodity); vessel-independent, in CORE_KEYS so `to_entry` shares it. Match: blv-only -> FUZZY 0.85 (same tier as bl). Entries lacking `blv` (old) just never match on it.
 - Voyage normalisation (`_norm_voyage`): alnum upper, strip leading V/VOY/VOYAGE before a digit, strip leading zeros: "066S"="66S"="V.066S"="Voy 66S". This changes all voyage-derived hashes (exact/cargo/blv) vs round 1; old pledged entries with zero-padded voyages would no longer match (re-pledge/re-seed).
 - Tests updated: normalize voyage "45E", adjacent-band case now matches ["bl","blv"], to_entry core keys include blv; added vessel-typo, Sea Falcon II decoy, same-bank, voyage variants, legacy entry w/o blv.
+
+## Round 3 (red-team-v2: fx_transshipment_new_bl_ref_original)
+- New shared key `bln` = H(salt | "bln" | bl_norm | commodity) in CORE_KEYS (vessel/voyage independent). Private probe key `bln_ref` = same formula over the invoice "B/L Ref" (only if it differs from the B/L number); stripped in `to_entry`. `match` probes shared `bln` with both via `find_consortium_by_band("bln", ...)`.
+- Similarity: `bln_ref` hit -> FUZZY 0.8 ["bln_ref"]; plain `bln` (same B/L, vessel and voyage both differ) -> FUZZY 0.8 ["bln"]. Higher tiers (exact/cargo/bl/blv) win and `bln` is omitted from their matched_keys list (keeps old assertions). Old entries without `bln` simply never match on it; same-bank and different-commodity excluded.
+- TEMPORARY DUPLICATION: if `fields.bl_ref` is None, `build_fingerprint` derives it with a local regex (`B/L Ref:`, case-insensitive) from the INVOICE doc text (`_invoice_bl_ref`). Master should consolidate into intake (which fills `ExtractedFields.bl_ref`) and delete the local regex.
+- Tests added in tests/unit/test_fingerprint.py; to_entry core-keys test updated to include bln.

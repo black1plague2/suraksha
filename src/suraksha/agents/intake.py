@@ -128,6 +128,51 @@ def _clean(v: str) -> str:
     return re.sub(r"\s+", " ", v).strip()
 
 
+# --------------------------------------------------------------------------- injection hardening
+FREE_TEXT_MAX = 80
+_INVISIBLE_RE = re.compile("[" + "".join(chr(c) for c in (*range(0, 9), *range(11, 32), *range(127, 160), *range(0x200b, 0x2010), *range(0x202a, 0x202f), *range(0x2060, 0x2065), 0xfeff)).replace("\\", "\\\\") + "]")
+_SENTENCE_BREAK_RE = re.compile(r"\.\s+(?=[A-Za-z])|[;{<|]")
+_ABBREV = {"pvt", "ltd", "co", "inc", "corp", "llc", "llp", "m/s", "mr", "st", "no", "mv", "ms", "bros", "dr", "mt"}
+_FREE_TEXT_FIELDS = (
+    "commodity", "shipper", "consignee", "vessel", "port_of_loading", "port_of_discharge",
+)
+
+_INJECTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
+    ("ignore_instructions", re.compile(r"ignore\s+(?:all\s+|any\s+)?(?:the\s+)?(?:previous|prior|above|earlier)?\s*(?:instructions?|rules?|prompts?)", re.I)),
+    ("mark_clear", re.compile(r"mark\b.{0,60}\bclear", re.I)),
+    ("approve_this", re.compile(r"\bapprove\s+(?:this|the)\b", re.I)),
+    ("system_prefix", re.compile(r"\bsystem\s*:", re.I)),
+    ("closing_tag", re.compile(r"</\s*document\s*>", re.I)),
+    ("json_status", re.compile(r"\{\s*\"status\"", re.I)),
+    ("disregard", re.compile(r"disregard\s+(?:all\s+|the\s+|any\s+)?(?:previous|prior|consortium|above)", re.I)),
+]
+
+
+def detect_injection(text: str) -> list[str]:
+    """Names of instruction-like patterns found in untrusted document text (empty = none)."""
+    t = _INVISIBLE_RE.sub("", text or "")
+    return [name for name, pat in _INJECTION_PATTERNS if pat.search(t)]
+
+
+def _clip_value(v: str) -> str:
+    """Reduce a free-text label value to the value proper: strip invisibles, cut at the first
+    sentence break / structural character, cap the length."""
+    v = _clean(_INVISIBLE_RE.sub("", v))
+    pos = 0
+    while True:
+        m = _SENTENCE_BREAK_RE.search(v, pos)
+        if not m:
+            break
+        if m.group(0).startswith("."):
+            last = v[: m.start()].split(" ")[-1].lower()
+            if last in _ABBREV or (len(last) == 1 and last.isalpha()):
+                pos = m.end()
+                continue
+        v = v[: m.start()]
+        break
+    return v.strip()[:FREE_TEXT_MAX].strip()
+
+
 def _parse_num(s: str) -> float:
     return float(re.sub(r"[,\s]", "", s))
 
@@ -162,6 +207,14 @@ def extract(req: FinancingRequest) -> ExtractedFields:
 
     out = ExtractedFields(request_id=req.request_id)
 
+    for d in req.documents:
+        found = detect_injection(d.text)
+        if found:
+            log.warning(
+                "intake_injection_detected",
+                extra={"ctx": {"request_id": req.request_id, "doc_id": d.doc_id, "patterns": found}},
+            )
+
     def hits(field: str) -> list[_Hit]:
         res: list[_Hit] = []
         for dt in _PRIORITY[field]:
@@ -182,7 +235,10 @@ def extract(req: FinancingRequest) -> ExtractedFields:
         "commodity", "shipper", "consignee",
     ):
         for h in hits(f):
-            setattr(out, f, _clean(h.value))
+            val = _clip_value(h.value) if f in _FREE_TEXT_FIELDS else _clean(h.value)
+            if not val:
+                continue
+            setattr(out, f, val)
             cite(f, h)
             break
 
@@ -192,6 +248,7 @@ def extract(req: FinancingRequest) -> ExtractedFields:
             h = _find(d, _LABELS[DocType.WAREHOUSE_RECEIPT]["ex_vessel"])
             if h:
                 parts = [p.strip() for p in re.split(r"\s*/\s*", _clean(h.value), maxsplit=1)]
+                parts[0] = _clip_value(parts[0])
                 if out.vessel is None and parts[0]:
                     out.vessel = parts[0]
                     cite("vessel", h)
