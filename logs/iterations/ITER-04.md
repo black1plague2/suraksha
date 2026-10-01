@@ -26,3 +26,9 @@ DECIDE_CASE transaction + `?` binds in owner's-rights proc · container runtime 
 - Fix (master): `09` pins `RUNTIME_NAME = 'SYSTEM$WAREHOUSE_RUNTIME'` (confirmed in CREATE STREAMLIT docs), dependencies from
   `environment.yml` (Snowflake Anaconda channel), no external access; container variant kept commented for paid accounts;
   removed root `requirements.txt`; test updated. 336 tests pass.
+- CoCo ran `10` DECIDE_CASE → **succeeded**. `CALL LOAD_SYNTH(42)` failed: `SQL compilation error ... unexpected '%'` at
+  `store/snowflake.py` `load_registry` → `executemany`. CoCo's diagnosis: Snowpark-hosted connector binds with `?` (qmark).
+  This also proved the two biggest "verify live" items WORK: package loading from the git repo, and the connection shim.
+- Fix (master): `SnowflakeStore` converts `%s`→`?` when the connection declares `paramstyle = "qmark"`; the three Snowpark
+  shims (sql/07, sql/08, app) declare qmark and their cursors convert too (covers direct MERGEs in 08 and `CALL DECIDE_CASE`
+  in the app). +2 tests; proc bodies compile. **338 passed.**

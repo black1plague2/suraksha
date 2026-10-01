@@ -187,16 +187,23 @@ class SnowflakeStore:
 
     def __init__(self, conn: Any | None = None, connection_name: str | None = None) -> None:
         self._conn = conn if conn is not None else connect_from_env(connection_name)
+        # Snowpark-session connections (stored procedures, Streamlit-in-Snowflake) bind with `?` (qmark);
+        # the external connector defaults to %s (pyformat). SQL here is written with %s and converted.
+        # Live ITER-04: LOAD_SYNTH failed with "unexpected '%'" before this.
+        self._qmark = getattr(self._conn, "paramstyle", "pyformat") == "qmark"
 
     def close(self) -> None:
         self._conn.close()
 
     # ------------------------------------------------------------------ low level
+    def _sql(self, sql: str) -> str:
+        return sql.replace("%s", "?") if self._qmark else sql
+
     def _exec(self, sql: str, params: tuple | list | None = None) -> None:
         log.debug("sf_exec", extra={"ctx": {"sql": sql.split("\n", 1)[0][:80], "n_params": len(params or ())}})
         cur = self._conn.cursor()
         try:
-            cur.execute(sql, tuple(params) if params else None)
+            cur.execute(self._sql(sql), tuple(params) if params else None)
         finally:
             cur.close()
 
@@ -204,7 +211,7 @@ class SnowflakeStore:
         log.debug("sf_query", extra={"ctx": {"sql": sql.split("\n", 1)[0][:80], "n_params": len(params or ())}})
         cur = self._conn.cursor()
         try:
-            cur.execute(sql, tuple(params) if params else None)
+            cur.execute(self._sql(sql), tuple(params) if params else None)
             cols = [d[0].lower() for d in cur.description or []]
             return [dict(zip(cols, r)) for r in cur.fetchall()]
         finally:
@@ -522,7 +529,7 @@ class SnowflakeStore:
                 return
             cur = self._conn.cursor()
             try:
-                cur.executemany(sql, rows)
+                cur.executemany(self._sql(sql), rows)
             finally:
                 cur.close()
 

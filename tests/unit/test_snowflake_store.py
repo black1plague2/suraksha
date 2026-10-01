@@ -281,3 +281,20 @@ def test_cortex_complete_binds_prompt(conn):
     assert out.startswith("narrative")
     sql, params = conn.executed[-1]
     assert params == ("m1", EVIL) and EVIL not in sql
+
+
+def test_qmark_paramstyle_for_snowpark_session_connections():
+    # Live ITER-04: inside a stored procedure the connector binds with `?`; `%s` raised "unexpected '%'".
+    qconn = FakeConn()
+    qconn.paramstyle = "qmark"
+    qs = SnowflakeStore(conn=qconn)
+    qs.get_company("C1")
+    qs.load_registry([], [], [], [], [{"address_id": "A1", "line": "l", "city": "c", "country": "IN"}], [], [])
+    assert qconn.executed, "expected SQL to be executed"
+    for sql, _ in qconn.executed:
+        assert "%s" not in sql and "?" in sql
+
+
+def test_pyformat_default_keeps_percent_s(st, conn):
+    st.get_company("C1")
+    assert "%s" in conn.executed[0][0] and "?" not in conn.executed[0][0]

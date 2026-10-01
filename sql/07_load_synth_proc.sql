@@ -89,9 +89,11 @@ class _Cur:
         self._c = cur
 
     def execute(self, sql, params=None):
+        sql = sql.replace("%s", "?")  # Snowpark-hosted connector binds with ? (qmark)
         return self._c.execute(sql, params) if params else self._c.execute(sql)
 
     def executemany(self, sql, rows):  # loop: portable inside stored procedures
+        sql = sql.replace("%s", "?")
         for r in rows:
             self._c.execute(sql, tuple(r))
 
@@ -108,6 +110,7 @@ class _Cur:
 
 class _Conn:
     """DB-API shim over the Snowpark session's underlying connector connection."""
+    paramstyle = "qmark"  # Snowpark session connections bind with ? (live ITER-04)
 
     def __init__(self, session):
         raw = getattr(session, "connection", None)
