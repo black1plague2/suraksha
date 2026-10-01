@@ -46,3 +46,10 @@ DECIDE_CASE transaction + `?` binds in owner's-rights proc · container runtime 
   importing `batch_values_insert` from a stale package). Hardening (master): procs load the package from the git clone FIRST
   (current right after FETCH; `@CORE.CODE` copy only as fallback), purge any already-imported `suraksha*` modules each call
   (warm sandbox), and return `proc_version` ("iter04-batch-gitfirst") in their JSON so the running version is visible.
+- **LOAD_SYNTH(42) succeeded live** with `proc_version: iter04-batch-gitfirst`, package from the git clone (23 files):
+  companies 234, persons 607, roles 1087, corp_owners 35, addresses 226, transactions 3908, policy_clauses 12 — identical to local.
+- Pre-empting RUN_PIPELINE slowness: instrumented a full local run — **76,703 store calls**, ~74k registry lookups from the
+  ownership-graph walk (would be hours as individual Snowflake queries). New `store/cached.py` `RegistryCachedStore`: registry
+  snapshot in 5 SELECTs (`SnowflakeStore.snapshot_registry`), single-writer audit cache (`append_audit_unchecked`). Wired into
+  RUN_PIPELINE (`proc_version: iter04-registry-cache`) and the SiS app. Snowflake-bound calls: **76,703 → 1,863**. Identical
+  results proven by `tests/unit/test_cached_store.py`. **342 passed.**

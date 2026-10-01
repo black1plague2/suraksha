@@ -343,6 +343,16 @@ class SnowflakeStore:
     def get_address(self, address_id: str) -> dict[str, Any] | None:
         return self._one(f"SELECT address_id, line, city, country FROM {T_ADDRESSES} WHERE address_id = %s", (address_id,))
 
+    def snapshot_registry(self) -> dict[str, list[dict[str, Any]]]:
+        """Whole registry in 5 SELECTs (for store.cached.RegistryCachedStore)."""
+        return {
+            "companies": self._query(f"SELECT {_COMPANY_COLS} FROM {T_COMPANIES}"),
+            "persons": self._query(f"SELECT person_id, name, id_hash FROM {T_PERSONS}"),
+            "roles": self._query(f"SELECT company_id, person_id, role, pct FROM {T_ROLES}"),
+            "corp_owners": self._query(f"SELECT owner_company_id, owned_company_id, pct FROM {T_CORP_OWNERS}"),
+            "addresses": self._query(f"SELECT address_id, line, city, country FROM {T_ADDRESSES}"),
+        }
+
     # ------------------------------------------------------------------ bank private
     def transactions_for(self, company_id: str, bank_id: str | None = None) -> list[dict[str, Any]]:
         if bank_id is not None:
@@ -528,6 +538,11 @@ class SnowflakeStore:
         last = self.last_audit()
         if last is not None and record.seq != last.seq + 1:
             raise ValueError("audit seq must be contiguous")
+        self.append_audit_unchecked(record)
+
+    def append_audit_unchecked(self, record: AuditRecord) -> None:
+        """Insert without re-reading the last row. Only for a caller that tracks seq itself
+        (RegistryCachedStore, single writer)."""
         self._exec(
             f"INSERT INTO {T_AUDIT} (seq, at, actor, action, subject_id, payload, prev_hash, entry_hash) "
             "SELECT %s, TO_TIMESTAMP_NTZ(%s), %s, %s, %s, PARSE_JSON(%s), %s, %s",

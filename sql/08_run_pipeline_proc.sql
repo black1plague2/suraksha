@@ -45,7 +45,7 @@ STAGES = (  # git clone first: always current after ALTER GIT REPOSITORY ... FET
     "@SURAKSHA.CORE.CODE/src/",
 )
 DST = "/tmp/suraksha_src"
-PROC_VERSION = "iter04-batch-gitfirst"  # bump when the proc body changes; shows in the returned JSON
+PROC_VERSION = "iter04-registry-cache"  # bump when the proc body changes; shows in the returned JSON
 
 
 def ensure_pkg(session):
@@ -163,7 +163,9 @@ def run(session, seed):
     from suraksha.synth.generator import generate
 
     ds = generate(seed=int(seed))
-    store = SnowflakeStore(_Conn(session))
+    from suraksha.store.cached import RegistryCachedStore
+    # registry read once (5 SELECTs) instead of ~74k per-lookup queries (live ITER-04)
+    store = RegistryCachedStore(SnowflakeStore(_Conn(session)))
     engine = Suraksha(store)
 
     t0 = time.perf_counter()

@@ -129,7 +129,8 @@ def detect_backend() -> tuple[str, object | None]:
 def load_snowflake_store(_session):
     from suraksha.store.snowflake import SnowflakeStore
 
-    return SnowflakeStore(_Conn(_session)) if _session is not None else SnowflakeStore()
+    from suraksha.store.cached import RegistryCachedStore  # graph walks hit the registry thousands of times
+    return RegistryCachedStore(SnowflakeStore(_Conn(_session)) if _session is not None else SnowflakeStore())
 
 
 def snowflake_rows(store) -> list[dict]:
