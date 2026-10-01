@@ -19,3 +19,10 @@
 ## Still "verify live" (BUILD part 2 will tell)
 COPY FILES + `session.file.get` package loading in procs · Snowpark connection shim (`session.connection` / `_conn._conn`) ·
 DECIDE_CASE transaction + `?` binds in owner's-rights proc · container runtime PyPI install · GRANT READ ON GIT REPOSITORY.
+
+## BUILD part 2 (live)
+- CoCo ran `01` (re-run), `07` LOAD_SYNTH, `08` RUN_PIPELINE → **all succeeded**.
+- `09` failed: `SQL compilation error: External access is not supported for trial accounts.` (container runtime → PyPI egress).
+- Fix (master): `09` pins `RUNTIME_NAME = 'SYSTEM$WAREHOUSE_RUNTIME'` (confirmed in CREATE STREAMLIT docs), dependencies from
+  `environment.yml` (Snowflake Anaconda channel), no external access; container variant kept commented for paid accounts;
+  removed root `requirements.txt`; test updated. 336 tests pass.

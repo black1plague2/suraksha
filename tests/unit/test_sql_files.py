@@ -140,14 +140,18 @@ def _code(name: str) -> str:
     return "\n".join(l for l in raw.splitlines() if not l.lstrip().startswith("--"))
 
 
-def test_09_container_runtime():
+def test_09_warehouse_runtime_no_external_access():
+    # Trial accounts reject EXTERNAL ACCESS INTEGRATION (live ITER-04 error), so the active statement must pin
+    # the warehouse runtime and must not need PyPI egress; the container variant stays as a commented alternative.
     code = _code("09_streamlit.sql")
-    assert "RUNTIME_NAME = 'SYSTEM$ST_CONTAINER_RUNTIME_PY3_11'" in code
-    assert "COMPUTE_POOL = SYSTEM_COMPUTE_POOL_CPU" in code
+    assert "RUNTIME_NAME = 'SYSTEM$WAREHOUSE_RUNTIME'" in code
+    assert "EXTERNAL_ACCESS_INTEGRATIONS" not in code
+    assert "EXTERNAL ACCESS INTEGRATION" not in code
     assert "QUERY_WAREHOUSE = SURAKSHA_WH" in code
     assert "GRANT USAGE ON STREAMLIT SURAKSHA.CORE.SURAKSHA_APP TO ROLE SURAKSHA_APP" in code
     raw = (SQL_DIR / "09_streamlit.sql").read_text(encoding="utf-8")
-    assert "FALLBACK" in raw
+    assert "SYSTEM$ST_CONTAINER_RUNTIME_PY3_11" in raw  # documented alternative
+    assert (ROOT / "environment.yml").exists()
 
 
 def test_load_synth_not_granted_to_app():
