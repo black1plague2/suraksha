@@ -7,6 +7,7 @@ Rule: if a needed citation is missing, the sentence is omitted rather than emitt
 """
 from __future__ import annotations
 
+import os
 from datetime import datetime, timezone
 from typing import Any, Callable
 
@@ -27,6 +28,92 @@ from suraksha.models import (
 log = get_logger(__name__)
 
 RECOMMENDED_ACTION = "HOLD_DISBURSEMENT"
+
+# Reporting entity follows req.bank_id unless SURAKSHA_REPORTING_ENTITY is explicitly set.
+BANK_NAMES: dict[str, str] = {
+    "BANK_A": "Bank A (synthetic)",
+    "BANK_B": "Bank B (synthetic)",
+    "BANK_C": "Bank C (synthetic)",
+}
+
+
+def reporting_entity_name(bank_id: str, settings: Settings) -> str:
+    if os.environ.get("SURAKSHA_REPORTING_ENTITY"):
+        return settings.reporting_entity
+    return BANK_NAMES.get(bank_id, bank_id)
+
+
+# ---- Policy clause relevance (deterministic) -------------------------------------------------
+# Fired rule id -> policy tags it makes relevant.
+RULE_POLICY_TAGS: dict[str, frozenset[str]] = {
+    "R_EXACT_HASH": frozenset({"duplicate_financing", "collateral"}),
+    "R_FUZZY_MATCH": frozenset({"duplicate_financing", "collateral"}),
+    "R_TIMING_OVERLAP": frozenset({"duplicate_financing", "collateral"}),
+    "R_SHARED_UBO": frozenset({"related_party"}),
+    "R_SHARED_DIRECTOR": frozenset({"related_party"}),
+    "R_CORP_OWNERSHIP": frozenset({"related_party"}),
+    "R_SAME_ADDRESS": frozenset({"related_party"}),
+    "R_SAME_PHONE": frozenset({"related_party"}),
+}
+# Tags that are relevant to every report.
+ALWAYS_TAGS = frozenset({"str_filing", "hold"})
+# Keyword fallback (clause title/text, lower-case) used only when a clause carries no tags.
+KEYWORD_TAGS: dict[str, tuple[str, ...]] = {
+    "duplicate_financing": ("duplicate", "pledge", "re-issu", "reissu"),
+    "collateral": ("collateral", "bill of lading", "warehouse receipt"),
+    "related_party": ("related", "beneficial owner", "ownership", "round-tripping"),
+    "str_filing": ("suspicious transaction report", " str ", "fiu-ind"),
+    "hold": ("hold", "disbursement"),
+}
+_REISSUE_KEYS = ("re-issu", "reissu")
+_BL_MATCH_KEYS = {"exact", "bl"}
+
+
+def _clause_tags(cl: dict) -> set[str]:
+    tags = {str(t) for t in (cl.get("tags") or [])}
+    if tags:
+        return tags
+    blob = f" {cl.get('title', '')} {cl.get('text', '')} ".lower()
+    return {t for t, kws in KEYWORD_TAGS.items() if any(k in blob for k in kws)}
+
+
+def _is_reissue_clause(cl: dict) -> bool:
+    blob = f"{cl.get('title', '')} {cl.get('text', '')}".lower()
+    return any(k in blob for k in _REISSUE_KEYS)
+
+
+def select_policy_clauses(clauses: list[dict], fired_rules: set[str], match: Any) -> list[dict]:
+    """Keep only clauses relevant to the evidence.
+
+    wanted tags = union of RULE_POLICY_TAGS over fired rules. A clause is kept when its tags
+    intersect the wanted set, or it carries only ALWAYS_TAGS (str_filing/hold), except:
+    - re-issuance clauses require a FUZZY match whose matched_keys lack "exact"/"bl";
+    - related_party clauses require a fired ownership/director/UBO/address/phone rule.
+    """
+    wanted: set[str] = set()
+    for r in fired_rules:
+        wanted |= RULE_POLICY_TAGS.get(r, frozenset())
+    keys = {str(k).lower() for k in match.matched_keys}
+    bl_differs = match.match_type.value == "FUZZY" and not (keys & _BL_MATCH_KEYS)
+    out = []
+    for cl in clauses:
+        tags = _clause_tags(cl)
+        if _is_reissue_clause(cl) and not bl_differs:
+            continue
+        if "related_party" in tags and "related_party" not in wanted:
+            continue
+        if (tags & wanted) or (tags & ALWAYS_TAGS):
+            out.append(cl)
+    return out
+
+
+_LINK_PRIORITY = [
+    ("R_SHARED_UBO", "a shared ultimate beneficial owner"),
+    ("R_CORP_OWNERSHIP", "a corporate ownership link"),
+    ("R_SHARED_DIRECTOR", "a shared director"),
+    ("R_SAME_ADDRESS", "a shared registered address"),
+    ("R_SAME_PHONE", "a shared telephone number"),
+]
 
 
 def _fmt_amount(amount: float | None, currency: str | None) -> str:
@@ -99,7 +186,7 @@ def draft_str(
 
     # ---- PART 1
     p1 = _Section("PART 1", "Reporting entity")
-    p1.add(f"Reporting entity: {settings.reporting_entity} (bank id {req.bank_id}).", [req_cit])
+    p1.add(f"Reporting entity: {reporting_entity_name(req.bank_id, settings)} (bank id {req.bank_id}).", [req_cit])
     p1.add(f"The report relates to financing request {req.request_id} submitted on "
            f"{req.submitted_at.date().isoformat()}.", [req_cit])
 
@@ -178,13 +265,23 @@ def draft_str(
     p5 = _Section("PART 5", "Grounds of suspicion")
     m = inv.match
     keys = ", ".join(m.matched_keys) or "n/a"
+    fired = {ev.rule_id: ev for ev in conf.evidence}
+    link_txt, link_cits = "no borrower-to-borrower link was established", []
+    for rid, desc in _LINK_PRIORITY:
+        if rid in fired:
+            link_txt, link_cits = f"the strongest link between the borrowers is {desc} (rule {rid})", list(fired[rid].citations)
+            break
+    p5.add(f"Summary: the cargo of request {req.request_id} matches a pledge lodged at {m.entry.bank_id} "
+           f"({m.match_type.value} match); {link_txt}; the confidence score is {conf.score:.2f} "
+           f"({conf.band.value}) and the recommended action is to {RECOMMENDED_ACTION.lower().replace('_', ' ')}.",
+           [match_cit] + link_cits)
     p5.add(f"The cargo fingerprint ({keys}) matches consortium entry {m.entry.entry_id} lodged by "
            f"{m.entry.bank_id} ({m.match_type.value} match, similarity {m.similarity:.2f}).", [match_cit])
     for ev in conf.evidence:
         p5.add(f"Rule {ev.rule_id} (weight {ev.weight:.2f}): {ev.description}", list(ev.citations))
     all_ev_cits = _dedupe([c for ev in conf.evidence for c in ev.citations] + [match_cit])
     p5.add(f"The deterministic confidence score is {conf.score:.2f} ({conf.band.value}).", all_ev_cits)
-    for cl in inv.policy_clauses:
+    for cl in select_policy_clauses(inv.policy_clauses, set(fired), m):
         cid = cl.get("clause_id")
         if not cid:
             continue
@@ -199,7 +296,7 @@ def draft_str(
             text = ""
         if text:
             used = _dedupe([c for s in p5.sentences for c in s.citations])
-            p5.sentences.insert(0, ReportSentence(text=text, citations=used))
+            p5.sentences.insert(min(1, len(p5.sentences)), ReportSentence(text=text, citations=used))
 
     # ---- PART 6
     p6 = _Section("PART 6", "Action taken / recommended")

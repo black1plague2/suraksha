@@ -4,9 +4,10 @@ Keys (all sha256(salt + "|" + "|".join(parts))):
   exact : bl_norm | vessel | voyage | commodity | qty_band
   cargo : vessel | voyage | commodity | qty_band           (catches reissued B/L)
   bl    : bl_norm | vessel                                  (catches altered qty/commodity)
+  blv   : bl_norm | voyage | commodity                      (vessel-independent: vessel typo/rename)
 Extra, fingerprint-only keys "cargo_m1" / "cargo_p1" hold the cargo hash for band-1 / band+1
 so `match` can probe neighbour bands without the raw values. They are stripped in `to_entry`
-(the shared table keeps only exact/cargo/bl).
+(the shared table keeps only exact/cargo/bl/blv).
 """
 from __future__ import annotations
 
@@ -30,7 +31,7 @@ from suraksha.store.base import Store
 
 log = get_logger(__name__)
 
-CORE_KEYS = ("exact", "cargo", "bl")
+CORE_KEYS = ("exact", "cargo", "bl", "blv")
 SIM_EXACT = 1.0
 SIM_CARGO = 0.9
 SIM_BL = 0.85
@@ -94,6 +95,16 @@ def _alnum_upper(v: str | None) -> str | None:
     return s or None
 
 
+def _norm_voyage(v: str | None) -> str | None:
+    """Alnum upper; drop a leading V/VOY/VOYAGE tag before a digit and leading zeros ("V.066S" == "66S")."""
+    s = _alnum_upper(v)
+    if not s:
+        return None
+    s = re.sub(r"^(VOYAGE|VOY|V)(?=\d)", "", s)
+    s = s.lstrip("0") or s
+    return s
+
+
 def band_of(qty_mt: float, width: float) -> int:
     """round(qty / width), half-up (avoids banker's rounding surprises)."""
     return int(math.floor(qty_mt / width + 0.5))
@@ -108,7 +119,7 @@ def normalize(fields: ExtractedFields, qty_band_mt: float = 50.0) -> dict[str, s
     vessel = _norm_vessel(fields.vessel)
     if vessel:
         out["vessel"] = vessel
-    voyage = _alnum_upper(fields.voyage)
+    voyage = _norm_voyage(fields.voyage)
     if voyage:
         out["voyage"] = voyage
     commodity = canonical_commodity(fields.commodity)
@@ -164,6 +175,8 @@ def build_fingerprint(
         keys["cargo_p1"] = _cargo_hash(salt, n, band + 1)  # type: ignore[operator,arg-type]
     if need("bl", ["bl_norm", "vessel"]):
         keys["bl"] = _h(salt, [n["bl_norm"], n["vessel"]])
+    if need("blv", ["bl_norm", "voyage", "commodity"]):
+        keys["blv"] = _h(salt, ["blv", n["bl_norm"], n["voyage"], n["commodity"]])
 
     if skipped:
         log.warning("fingerprint_keys_skipped", extra={"ctx": {"request_id": req.request_id, "skipped": skipped}})
@@ -220,7 +233,7 @@ def match(fp: Fingerprint, store: Store) -> list[ConsortiumMatch]:
                 offer(e, MatchType.EXACT, equal, SIM_EXACT)
             elif "cargo" in equal:
                 offer(e, MatchType.FUZZY, equal, SIM_CARGO)
-            elif "bl" in equal:
+            elif "bl" in equal or "blv" in equal:
                 offer(e, MatchType.FUZZY, equal, SIM_BL)
 
     neighbours = {fp.keys[k]: k for k in ("cargo_m1", "cargo_p1") if k in fp.keys}

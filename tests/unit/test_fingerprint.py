@@ -53,7 +53,7 @@ def test_commodity_canonicalisation():
 def test_normalize_parts():
     n = normalize(extract(req(vessel="M/V Ocean  Star", bl="bl-123/4")), 50)
     assert n["bl_norm"] == "BL1234" and n["vessel"] == "OCEAN STAR"
-    assert n["voyage"] == "045E" and n["commodity"] == "STEEL_COILS_HR" and n["qty_band"] == "100"
+    assert n["voyage"] == "45E" and n["commodity"] == "STEEL_COILS_HR" and n["qty_band"] == "100"
 
 
 def test_hashes_do_not_leak_raw_values():
@@ -112,7 +112,7 @@ def test_adjacent_band_same_bl_best_is_bl_085():
     st = MemoryStore()
     pledge(st, req(qty="4,974 MT"), eid="E1")
     ms = match(fp_of(req(rid="R2", bank="BANK_B", qty="5,000 MT")), st)
-    assert len(ms) == 1 and ms[0].similarity == 0.85 and ms[0].matched_keys == ["bl"]
+    assert len(ms) == 1 and ms[0].similarity == 0.85 and ms[0].matched_keys == ["bl", "blv"]
 
 
 def test_two_bands_away_no_match():
@@ -156,6 +156,43 @@ def test_to_entry_core_keys_only_and_pledged_at():
     r = req()
     fp = fp_of(r)
     e = to_entry(fp)
-    assert set(e.keys) == {"exact", "cargo", "bl"}
+    assert set(e.keys) == {"exact", "cargo", "bl", "blv"}
     assert e.pledged_at == r.submitted_at and e.borrower_token == fp.borrower_token
     assert e.entry_id == "CE-R1" and to_entry(fp, "X").entry_id == "X"
+
+
+def test_vessel_typo_same_bl_voyage_is_fuzzy_blv_085():
+    st = MemoryStore()
+    pledge(st, req(vessel="Sea Falcon"), eid="E1")
+    ms = match(fp_of(req(rid="R2", bank="BANK_B", vessel="Sea Falkon"), "REG-2"), st)
+    assert len(ms) == 1
+    assert ms[0].match_type == MatchType.FUZZY and ms[0].similarity == 0.85
+    assert ms[0].matched_keys == ["blv"]
+
+
+def test_similar_vessel_different_bl_no_match():
+    st = MemoryStore()
+    pledge(st, req(vessel="Sea Falcon"), eid="E1")
+    assert match(fp_of(req(rid="R2", bank="BANK_B", vessel="Sea Falcon II", bl="OTHER777"), "REG-2"), st) == []
+
+
+def test_blv_same_bank_excluded():
+    st = MemoryStore()
+    pledge(st, req(vessel="Sea Falcon"), eid="E1")
+    assert match(fp_of(req(rid="R2", bank="BANK_A", vessel="Sea Falkon")), st) == []
+
+
+def test_voyage_format_variants_normalise_equal():
+    def v(x):
+        return normalize(extract(req(voyage=x)))["voyage"]
+    assert v("066S") == v("66S") == v("V.066S") == v("Voy 66S") == v("V066S")
+    assert v("045E") != v("045W")
+
+
+def test_old_entry_without_blv_still_matches_exact():
+    st = MemoryStore()
+    e = to_entry(fp_of(req()), "E1")
+    e.keys.pop("blv")
+    st.add_consortium_entry(e)
+    ms = match(fp_of(req(rid="R2", bank="BANK_B"), "REG-2"), st)
+    assert len(ms) == 1 and ms[0].match_type == MatchType.EXACT

@@ -21,3 +21,8 @@
 - Single-line `Label: value` only; no table/OCR layouts. Multi-commodity or multi-vessel B/Ls take first match.
 - Currency symbols / "crore"/"lakh" values not parsed.
 - `match` relies on store returning candidates via keys; EXACT detection requires `exact` key present on both sides.
+
+## Round 2 (red-team miss: dup_vessel_typo)
+- New shared key `blv` = H(salt | "blv" | bl_norm | voyage | commodity); vessel-independent, in CORE_KEYS so `to_entry` shares it. Match: blv-only -> FUZZY 0.85 (same tier as bl). Entries lacking `blv` (old) just never match on it.
+- Voyage normalisation (`_norm_voyage`): alnum upper, strip leading V/VOY/VOYAGE before a digit, strip leading zeros: "066S"="66S"="V.066S"="Voy 66S". This changes all voyage-derived hashes (exact/cargo/blv) vs round 1; old pledged entries with zero-padded voyages would no longer match (re-pledge/re-seed).
+- Tests updated: normalize voyage "45E", adjacent-band case now matches ["bl","blv"], to_entry core keys include blv; added vessel-typo, Sea Falcon II decoy, same-bank, voyage variants, legacy entry w/o blv.

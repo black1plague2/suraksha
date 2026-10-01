@@ -1,0 +1,316 @@
+{
+  "recall": 1.0,
+  "fpr": 0.0,
+  "n_must_flag": 27,
+  "n_must_clear": 14,
+  "scenarios": [
+    {
+      "scenario": "original_pledge",
+      "expected": "must_clear",
+      "got": "CLEAR",
+      "passed": true,
+      "doc": "The very first pledge of a cargo. Nothing in the consortium; must never alert."
+    },
+    {
+      "scenario": "clean_unrelated_sequence",
+      "expected": "must_clear",
+      "got": "CLEAR",
+      "passed": true,
+      "doc": "Three banks, three genuinely different cargoes by unrelated parties. Honest book of business."
+    },
+    {
+      "scenario": "same_bank_represent",
+      "expected": "must_clear",
+      "got": "CLEAR",
+      "passed": true,
+      "doc": "Trader re-presents the same documents to the SAME bank (resubmission after a typo fix). That bank already knows; not cross-bank duplicate financing."
+    },
+    {
+      "scenario": "dup_exact_same_borrower_two_banks",
+      "expected": "must_flag",
+      "got": "PENDING_APPROVAL",
+      "passed": true,
+      "doc": "Textbook: same borrower pledges identical B/L at two banks."
+    },
+    {
+      "scenario": "dup_exact_related_borrower",
+      "expected": "must_flag",
+      "got": "PENDING_APPROVAL",
+      "passed": true,
+      "doc": "Identical documents presented by a sister company sharing the UBO (P01)."
+    },
+    {
+      "scenario": "dup_exact_unrelated_borrower",
+      "expected": "must_flag",
+      "got": "PENDING_APPROVAL",
+      "passed": true,
+      "doc": "Identical B/L, vessel, voyage presented by a company with no registry link. Weak link, but identical cargo evidence must not be CLEAR."
+    },
+    {
+      "scenario": "dup_three_bank_chain",
+      "expected": "must_flag",
+      "got": "PENDING_APPROVAL",
+      "passed": true,
+      "doc": "Cargo goes to A, then B, then back via the original borrower to C. The last request has two prior pledges."
+    },
+    {
+      "scenario": "dup_shell_four_hops",
+      "expected": "must_flag",
+      "got": "NEED_MORE_EVIDENCE",
+      "passed": true,
+      "doc": "Reissued B/L presented by a shell owned through a four-company chain ending at the original UBO (P01 -> RT07 -> RT06 -> RT05 -> RT04)."
+    },
+    {
+      "scenario": "dup_vessel_typo",
+      "expected": "must_flag",
+      "got": "PENDING_APPROVAL",
+      "passed": true,
+      "doc": "Single-letter vessel typo/transliteration ('Falcon' vs 'Falkon') on otherwise identical docs."
+    },
+    {
+      "scenario": "dup_mv_prefix_case_spacing",
+      "expected": "must_flag",
+      "got": "PENDING_APPROVAL",
+      "passed": true,
+      "doc": "Prefix, upper-casing and extra whitespace in vessel name."
+    },
+    {
+      "scenario": "dup_voyage_leading_zero",
+      "expected": "must_flag",
+      "got": "PENDING_APPROVAL",
+      "passed": true,
+      "doc": "Voyage '066S' re-keyed as '66S'."
+    },
+    {
+      "scenario": "dup_voyage_v_prefix",
+      "expected": "must_flag",
+      "got": "PENDING_APPROVAL",
+      "passed": true,
+      "doc": "Voyage '066S' re-keyed as 'V.066S'."
+    },
+    {
+      "scenario": "dup_bl_spaces_dashes",
+      "expected": "must_flag",
+      "got": "PENDING_APPROVAL",
+      "passed": true,
+      "doc": "B/L number punctuation changed from dashes to spaces; cargo fields identical."
+    },
+    {
+      "scenario": "dup_bl_lowercase_compact",
+      "expected": "must_flag",
+      "got": "PENDING_APPROVAL",
+      "passed": true,
+      "doc": "B/L lower-cased with separators stripped."
+    },
+    {
+      "scenario": "dup_qty_kg",
+      "expected": "must_flag",
+      "got": "PENDING_APPROVAL",
+      "passed": true,
+      "doc": "Same cargo expressed as 5,000,000 KG instead of 5,000 MT."
+    },
+    {
+      "scenario": "dup_qty_tonnes_unit",
+      "expected": "must_flag",
+      "got": "PENDING_APPROVAL",
+      "passed": true,
+      "doc": "Unit written TONNES instead of MT."
+    },
+    {
+      "scenario": "dup_qty_rounded",
+      "expected": "must_flag",
+      "got": "PENDING_APPROVAL",
+      "passed": true,
+      "doc": "Quantity rounded up on re-pledge, same B/L."
+    },
+    {
+      "scenario": "dup_commodity_synonym",
+      "expected": "must_flag",
+      "got": "PENDING_APPROVAL",
+      "passed": true,
+      "doc": "'HRC' vs 'Hot Rolled Steel Coils' -- same goods, different words; related borrower."
+    },
+    {
+      "scenario": "dup_commodity_wordorder",
+      "expected": "must_flag",
+      "got": "PENDING_APPROVAL",
+      "passed": true,
+      "doc": "Commodity re-worded."
+    },
+    {
+      "scenario": "dup_date_ddmmyyyy",
+      "expected": "must_flag",
+      "got": "PENDING_APPROVAL",
+      "passed": true,
+      "doc": "Shipment date in DD/MM/YYYY."
+    },
+    {
+      "scenario": "dup_alias_labels",
+      "expected": "must_flag",
+      "got": "PENDING_APPROVAL",
+      "passed": true,
+      "doc": "Alternative field labels used by another carrier's template."
+    },
+    {
+      "scenario": "dup_arabic_gcc_names",
+      "expected": "must_flag",
+      "got": "PENDING_APPROVAL",
+      "passed": true,
+      "doc": "Shipper rendered in Arabic script the second time, vessel case and voyage hyphen differ."
+    },
+    {
+      "scenario": "dup_via_wr_new_bl",
+      "expected": "must_flag",
+      "got": "PENDING_APPROVAL",
+      "passed": true,
+      "doc": "Second bank gets a brand-new B/L number, new invoice/LC numbers and a different shipment date; the same vessel/voyage/commodity/qty remain (incl. the warehouse receipt)."
+    },
+    {
+      "scenario": "dup_altered_commodity_same_bl",
+      "expected": "must_flag",
+      "got": "PENDING_APPROVAL",
+      "passed": true,
+      "doc": "Same B/L and vessel but commodity text altered to dodge the cargo hash."
+    },
+    {
+      "scenario": "dup_altered_qty_same_bl",
+      "expected": "must_flag",
+      "got": "PENDING_APPROVAL",
+      "passed": true,
+      "doc": "Same B/L number and vessel, quantity inflated nearly 2x at the second bank."
+    },
+    {
+      "scenario": "dup_inflated_invoice_value",
+      "expected": "must_flag",
+      "got": "PENDING_APPROVAL",
+      "passed": true,
+      "doc": "Cargo identical but invoice value overstated for a bigger loan."
+    },
+    {
+      "scenario": "dup_split_halves_same_bl",
+      "expected": "must_flag",
+      "got": "PENDING_APPROVAL",
+      "passed": true,
+      "doc": "Two banks each financed 'half' under the same B/L number; the document trail is one cargo."
+    },
+    {
+      "scenario": "dup_split_halves_diff_bl",
+      "expected": "either",
+      "got": "PENDING_APPROVAL",
+      "passed": null,
+      "doc": "Two B/Ls for two halves of one vessel parcel by related companies. Could be a legit split shipment or a fraudulent split; genuinely ambiguous."
+    },
+    {
+      "scenario": "dup_late_representation",
+      "expected": "must_flag",
+      "got": "PENDING_APPROVAL",
+      "passed": true,
+      "doc": "Same borrower re-pledges the identical cargo documents four months later at another bank (old loan still open)."
+    },
+    {
+      "scenario": "dup_missing_voyage_in_second",
+      "expected": "must_flag",
+      "got": "PENDING_APPROVAL",
+      "passed": true,
+      "doc": "Second presentation omits the voyage line from the B/L. Same B/L number, vessel, commodity, quantity remain; an extraction gap must not equal CLEAR."
+    },
+    {
+      "scenario": "dup_only_bl_and_invoice",
+      "expected": "must_flag",
+      "got": "PENDING_APPROVAL",
+      "passed": true,
+      "doc": "Second bank is shown only B/L and invoice (no LC, no warehouse receipt)."
+    },
+    {
+      "scenario": "decoy_coloaded_diff_commodity",
+      "expected": "must_clear",
+      "got": "CLEAR",
+      "passed": true,
+      "doc": "Two unrelated shippers' cargo on the same vessel and voyage (different commodity, different B/L)."
+    },
+    {
+      "scenario": "decoy_partial_shipments_same_vessel",
+      "expected": "must_clear",
+      "got": "CLEAR",
+      "passed": true,
+      "doc": "Same commodity on same vessel, but clearly a different parcel (1,200 MT vs 5,000 MT), different B/L and unrelated shipper."
+    },
+    {
+      "scenario": "decoy_same_commodity_diff_voyage",
+      "expected": "must_clear",
+      "got": "CLEAR",
+      "passed": true,
+      "doc": "Same vessel returns next month on a new voyage with same steel qty for another trader."
+    },
+    {
+      "scenario": "decoy_same_qty_diff_vessel",
+      "expected": "must_clear",
+      "got": "CLEAR",
+      "passed": true,
+      "doc": "Common 5,000 MT HRC parcel on a different vessel; steel traders hit standard lot sizes all the time."
+    },
+    {
+      "scenario": "decoy_similar_vessel_name",
+      "expected": "must_clear",
+      "got": "CLEAR",
+      "passed": true,
+      "doc": "Sister ship 'Sea Falcon II' is a real different vessel with different cargo; a fuzzy vessel matcher must not collapse them."
+    },
+    {
+      "scenario": "decoy_nominee_director_many_companies",
+      "expected": "must_clear",
+      "got": "CLEAR",
+      "passed": true,
+      "doc": "A corporate-nominee director sits on three unrelated Indian companies (common in India/GCC). Shared nominee alone, with different cargo, is not fraud."
+    },
+    {
+      "scenario": "decoy_nominee_director_same_vessel",
+      "expected": "must_clear",
+      "got": "CLEAR",
+      "passed": true,
+      "doc": "Same nominee director, and the vessel/voyage is shared (co-loaded), but cargo and B/L differ."
+    },
+    {
+      "scenario": "decoy_holding_group_diff_cargo",
+      "expected": "must_clear",
+      "got": "CLEAR",
+      "passed": true,
+      "doc": "Sister subsidiaries of one holding group each financing their own, different cargo at different banks."
+    },
+    {
+      "scenario": "decoy_shared_phone_only",
+      "expected": "must_clear",
+      "got": "CLEAR",
+      "passed": true,
+      "doc": "Two companies share a switchboard phone number but trade different goods. No cargo overlap."
+    },
+    {
+      "scenario": "decoy_same_borrower_second_cargo",
+      "expected": "must_clear",
+      "got": "CLEAR",
+      "passed": true,
+      "doc": "A prolific trader legitimately financing a second, unrelated cargo at another bank."
+    },
+    {
+      "scenario": "decoy_wr_only_unique",
+      "expected": "must_clear",
+      "got": "CLEAR",
+      "passed": true,
+      "doc": "Warehouse-receipt-only financing (no B/L), nothing else in the consortium."
+    },
+    {
+      "scenario": "hard_same_voyage_same_qty_unrelated",
+      "expected": "either",
+      "got": "NEED_MORE_EVIDENCE",
+      "passed": null,
+      "doc": "Unrelated shippers, same vessel/voyage/commodity/qty, different B/L. Coincidence is possible but suspicious."
+    },
+    {
+      "scenario": "dup_missing_all_ids",
+      "expected": "either",
+      "got": "PENDING_APPROVAL",
+      "passed": null,
+      "doc": "Second presentation is missing B/L number and voyage; only vessel/commodity/qty remain. Ambiguous."
+    }
+  ]
+}

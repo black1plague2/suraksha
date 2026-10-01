@@ -92,7 +92,8 @@ Policy clauses: ~12 synthetic clauses with ids like `TF-3.1`, `TF-4.2`, `AML-7.4
 
 **Citation conventions (ITER-01 resolution):** request-level facts use `Citation(REGISTRY, "requests:<request_id>")`;
 persons `persons:<id>`; addresses `addresses:<id>`. Fingerprints may carry extra private keys (`cargo_m1`, `cargo_p1`
-neighbour-band probes) — `to_entry` strips them so the shared ledger holds only `exact`/`cargo`/`bl`.
+neighbour-band probes) — `to_entry` strips them so the shared ledger holds only `exact`/`cargo`/`bl`/`blv`.
+`blv` (ITER-02) = H(bl_norm | voyage_norm | commodity) — vessel-independent; catches vessel typos/renames. Voyage normalisation strips V./VOY prefixes and leading zeros ("066S" = "V.066S" = "66S").
 
 ## B. `intake` + `fingerprint` — agent **match-engine** (Sonnet)
 Files: `src/suraksha/agents/intake.py`, `src/suraksha/agents/fingerprint.py`, `tests/unit/test_intake.py`, `tests/unit/test_fingerprint.py`

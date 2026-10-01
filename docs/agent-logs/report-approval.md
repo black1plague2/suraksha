@@ -25,3 +25,15 @@ _Saved by master from the agent's hand-back (the agent's Write call for this fil
 - No HTTP endpoint wired for Slack interactivity; webhook messages carry no Reject-reason input.
 - `AuditLog` lock is single-process; Snowflake needs DB-level sequencing.
 - PART 3 lists at most 5 transactions.
+
+## Round 2
+
+Changes (only `agents/report.py`, `tests/unit/test_report.py`):
+1. Policy clauses filtered by `select_policy_clauses` using module tables `RULE_POLICY_TAGS`, `ALWAYS_TAGS`, `KEYWORD_TAGS`. Fired rule -> tags; clause kept if its tags intersect wanted tags or it has str_filing/hold; related_party clauses only when an ownership/director/UBO/address/phone rule fired; re-issuance clauses (text/title "re-issu") only when match is FUZZY and matched_keys lack "exact"/"bl". Untagged clauses fall back to keyword matching.
+2. `BANK_NAMES` + `reporting_entity_name()`: env SURAKSHA_REPORTING_ENTITY wins if set, else BANK_NAMES.get(bank_id, bank_id).
+3. PART 5 begins with a cited "Summary:" sentence (matched bank, match type, strongest borrower link, score/band, action); narrative_fn text now goes second.
+4. 7 new tests added.
+
+Results:
+- `python -m pytest tests -q`: 121 passed in 4.05s
+- `python scripts/eval.py`: PASS G1_detection>=0.90, PASS G1_fpr<0.10, PASS G2_latency<5min, PASS G3_all_citations_valid, PASS G4_human_in_control+audit_chain

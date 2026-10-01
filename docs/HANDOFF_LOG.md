@@ -13,6 +13,12 @@ _(agents append here; master applies and records the resolution)_
 
 ---
 
+## 2026-10-01 · ITER-02 · Red-team + app + demo — 184 tests, all goals PASS
+- Blind red-team found 1 real miss (vessel typo) → fixed (`blv` key); red-team now 27/27, FPR 0% (no longer blind).
+- Streamlit app (4 personas) verified in browser incl. a UI approval; `scripts/demo.py` narrated judge demo; Slack endpoint.
+- User has CoCo access ($400 credits on a friend's Snowflake account) and is logging in. `cortex`/`snow` not yet on PATH in Claude's shell.
+- NEXT: ITER-03 — CoCo live deploy (see `docs/COCO_USAGE.md`, `docs/SNOWFLAKE_DEPLOY.md`), fresh blind red-team, demo polish. Details: `logs/iterations/ITER-02.md`.
+
 ## 2026-10-01 · ITER-01 · Integrated — ALL PRD GOALS PASS LOCALLY
 - 97 tests green; eval seed 42: detection 100%, FPR 1.5%, 0 citation errors, audit chain OK. Details: `logs/iterations/ITER-01.md`.
 - snowflake-infra agent still running at this commit; its files land in ITER-01b.

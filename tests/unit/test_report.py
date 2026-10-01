@@ -1,6 +1,7 @@
+import dataclasses
 from datetime import date, datetime, timezone
 
-from suraksha.agents.report import draft_str, render_markdown, validate_citations
+from suraksha.agents.report import BANK_NAMES, draft_str, render_markdown, validate_citations
 from suraksha.config import Settings
 from suraksha.models import (
     Citation, CitationKind as CK, ConfidenceBand, ConfidenceResult, ConsortiumEntry,
@@ -83,7 +84,8 @@ def test_validate_catches_uncited_sentence():
 def test_narrative_fn_inherits_citations():
     req, fields, inv, conf = build_inputs()
     d = draft_str(req, fields, inv, conf, Settings(), narrative_fn=lambda facts: "LLM narrative.")
-    first = d.sections[4].sentences[0]
+    first = d.sections[4].sentences[1]
+    assert d.sections[4].sentences[0].text.startswith("Summary:")
     assert first.text == "LLM narrative."
     assert first.citations
     assert validate_citations(d) == []
@@ -106,3 +108,81 @@ def test_markdown_has_footnotes():
     assert "document: DOC-1, page 1" in md
     assert "consortium: E9" in md
     assert "policy: TF-4.2" in md
+
+
+CLAUSES = [
+    {"clause_id": "TF-3.1", "title": "Single-pledge principle", "text": "Duplicate financing.", "tags": ["duplicate_financing", "collateral"]},
+    {"clause_id": "TF-4.2", "title": "Document re-issuance", "text": "Suspected re-issued document.", "tags": ["duplicate_financing", "collateral", "hold"]},
+    {"clause_id": "TF-5.3", "title": "Related-party borrowers", "text": "Related parties escalate.", "tags": ["related_party", "duplicate_financing"]},
+    {"clause_id": "AML-7.1", "title": "Round-tripping", "text": "Layering.", "tags": ["related_party", "str_filing"]},
+    {"clause_id": "AML-7.4", "title": "STR filing obligation", "text": "File STR.", "tags": ["str_filing"]},
+    {"clause_id": "TF-6.1", "title": "Disbursement hold", "text": "Hold.", "tags": ["hold", "duplicate_financing"]},
+]
+
+
+def clause_ids(d):
+    return {s.citations[0].ref for s in d.sections[4].sentences if s.citations[0].kind == CK.POLICY}
+
+
+def run(rules, match_type=MatchType.EXACT, keys=("exact", "cargo")):
+    req, fields, inv, conf = build_inputs()
+    inv.policy_clauses = CLAUSES
+    inv.match.match_type = match_type
+    inv.match.matched_keys = list(keys)
+    conf.evidence = [Evidence(r, "d", 0.1, [Citation(CK.RULE, r)]) for r in rules]
+    return draft_str(req, fields, inv, conf, Settings())
+
+
+def test_clauses_exact_with_ubo():
+    ids = clause_ids(run(["R_EXACT_HASH", "R_SHARED_UBO"]))
+    assert ids == {"TF-3.1", "TF-5.3", "AML-7.1", "AML-7.4", "TF-6.1"}  # no re-issuance
+
+
+def test_clauses_no_related_party_without_ownership_rule():
+    ids = clause_ids(run(["R_EXACT_HASH"]))
+    assert ids == {"TF-3.1", "AML-7.4", "TF-6.1"}
+
+
+def test_reissue_only_when_fuzzy_and_bl_differs():
+    assert "TF-4.2" in clause_ids(run(["R_FUZZY_MATCH"], MatchType.FUZZY, ("vessel", "voyage")))
+    assert "TF-4.2" not in clause_ids(run(["R_FUZZY_MATCH"], MatchType.FUZZY, ("bl", "vessel")))
+    assert "TF-4.2" not in clause_ids(run(["R_FUZZY_MATCH"], MatchType.EXACT, ("exact",)))
+
+
+def test_keyword_fallback_for_untagged_clause():
+    req, fields, inv, conf = build_inputs()
+    inv.policy_clauses = [
+        {"clause_id": "X-1", "title": "Duplicate financing", "text": "t", "tags": []},
+        {"clause_id": "X-2", "title": "Related-party borrowers", "text": "t", "tags": []},
+        {"clause_id": "X-3", "title": "Unrelated topic", "text": "nothing", "tags": []},
+    ]
+    conf.evidence = [Evidence("R_EXACT_HASH", "d", 0.5, [Citation(CK.RULE, "r")])]
+    ids = clause_ids(draft_str(req, fields, inv, conf, Settings()))
+    assert ids == {"X-1"}
+
+
+def test_reporting_entity_follows_bank_id(monkeypatch):
+    monkeypatch.delenv("SURAKSHA_REPORTING_ENTITY", raising=False)
+    req, fields, inv, conf = build_inputs()
+    for bank in ("BANK_B", "BANK_C"):
+        d = draft_str(dataclasses.replace(req, bank_id=bank), fields, inv, conf, Settings())
+        assert BANK_NAMES[bank] in d.sections[0].sentences[0].text
+    d = draft_str(dataclasses.replace(req, bank_id="BANK_Z"), fields, inv, conf, Settings())
+    assert "Reporting entity: BANK_Z" in d.sections[0].sentences[0].text
+
+
+def test_reporting_entity_env_override(monkeypatch):
+    monkeypatch.setenv("SURAKSHA_REPORTING_ENTITY", "Custom Bank")
+    req, fields, inv, conf = build_inputs()
+    d = draft_str(req, fields, inv, conf, Settings(reporting_entity="Custom Bank"))
+    assert "Custom Bank" in d.sections[0].sentences[0].text
+
+
+def test_executive_summary_first_and_cited():
+    d = make()
+    s = d.sections[4].sentences[0]
+    assert s.text.startswith("Summary:")
+    assert "BANK_B" in s.text and "EXACT" in s.text and "shared ultimate beneficial owner" in s.text
+    assert "0.80" in s.text and "HIGH" in s.text and "hold disbursement" in s.text
+    assert s.citations and any(c.kind == CK.CONSORTIUM for c in s.citations)
+    assert validate_citations(d) == []
