@@ -35,6 +35,12 @@ def test_demo_default_scenario():
     assert result.returncode == 0, f"stderr: {result.stderr}"
     assert "INTAKE" in result.stdout
     assert "Audit chain: VALID" in result.stdout
+    # Verify registry names appear alongside IDs
+    assert "LLP" in result.stdout or "Ltd" in result.stdout or "Exports" in result.stdout, \
+        "Registry names should appear in output"
+    # Verify ownership path contains arrow indicators
+    assert "<-" in result.stdout or "->" in result.stdout, \
+        "Ownership path should contain arrow indicators (<- or ->)"
 
 
 def test_demo_specific_scenario():
@@ -60,6 +66,13 @@ def test_demo_with_approval():
     assert result.returncode == 0, f"stderr: {result.stderr}"
     assert "APPROVAL" in result.stdout
     assert "Priya Nair" in result.stdout
+    # Verify registry names appear alongside IDs
+    assert "LLP" in result.stdout or "Ltd" in result.stdout or "Exports" in result.stdout, \
+        "Registry names should appear in output"
+    # Verify "Why this matters" section appears
+    assert "WHY THIS MATTERS" in result.stdout, "Should have 'Why this matters' section"
+    assert "Amount at risk" in result.stdout, "Should show amount at risk"
+    assert "Time to finding" in result.stdout, "Should show time to finding"
 
 
 def test_demo_invalid_scenario():

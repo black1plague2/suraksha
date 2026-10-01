@@ -8,7 +8,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 _CONFIGURED = False
@@ -43,7 +42,15 @@ def _configure() -> None:
     log_dir = Path(os.getenv("SURAKSHA_LOG_DIR", Path(__file__).resolve().parents[2] / "logs" / "runtime"))
     try:
         log_dir.mkdir(parents=True, exist_ok=True)
-        fh = RotatingFileHandler(log_dir / "suraksha.jsonl", maxBytes=1_000_000, backupCount=2, encoding="utf-8")
+        # No in-process rotation: on Windows a second process holding the file makes rollover raise.
+        # Trim at startup instead so the on-device footprint stays ~1 MB.
+        path = log_dir / "suraksha.jsonl"
+        if path.exists() and path.stat().st_size > 1_000_000:
+            try:
+                path.replace(log_dir / "suraksha.prev.jsonl")
+            except OSError:
+                pass
+        fh = logging.FileHandler(path, encoding="utf-8", delay=True)
         fh.setFormatter(fmt)
         root.addHandler(fh)
     except OSError:

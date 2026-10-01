@@ -1,0 +1,6 @@
+name: suraksha
+channels:
+  - snowflake
+dependencies:
+  - streamlit
+  - pandas

@@ -13,6 +13,19 @@ _(agents append here; master applies and records the resolution)_
 
 ---
 
+## 2026-10-01 · ITER-03 · Snowflake-native (IN PROGRESS)
+- User works browser-only in Snowsight + Cortex Code online. Account details are kept out of the repo (see local notes); Enterprise edition, role ACCOUNTADMIN.
+- Code → Snowflake via Git repository object. User chose a **public repo** for the hackathon; the user flips visibility
+  themselves. sql/06 keeps `GIT_CREDENTIALS` as one removable line. Account identifiers are NOT stored in the repo.
+- Done: snowflake-native (Sonnet) — sql/06 git repo + EXECUTE IMMEDIATE FROM deploy chain, sql/07 LOAD_SYNTH proc, sql/08
+  RUN_PIPELINE proc (+ PIPELINE_RESULTS for SQL/Python rule parity), sql/09 Streamlit-in-Snowflake, root `streamlit_app.py`
+  shim + `environment.yml`, `docs/SNOWSIGHT_RUNBOOK.md`; 29 static SQL tests. Several items "verify live" (see its agent log).
+- Done: red-team-v2 (Sonnet, blind) — recall 95.8% (23/24), FPR 0%, no crashes. Real findings: (1) injected document text
+  echoed unquoted in STR → injection-hardening agent running; (2) transshipment via invoice B/L Ref missed → match-engine r3
+  running (`bln` shared key + `bln_ref` probe). Master added `ExtractedFields.bl_ref`; replaced RotatingFileHandler (Windows rollover error).
+- Done: demo-polish (Haiku) — names, readable ownership chains, "why this matters".
+- Note: Streamlit-in-Snowflake app still uses the in-memory backend (reads no Snowflake tables yet) → ITER-04.
+
 ## 2026-10-01 · ITER-02 · Red-team + app + demo — 184 tests, all goals PASS
 - Blind red-team found 1 real miss (vessel typo) → fixed (`blv` key); red-team now 27/27, FPR 0% (no longer blind).
 - Streamlit app (4 personas) verified in browser incl. a UI approval; `scripts/demo.py` narrated judge demo; Slack endpoint.

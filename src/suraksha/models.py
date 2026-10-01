@@ -61,6 +61,7 @@ class FinancingRequest:
 class ExtractedFields:
     request_id: str
     bl_number: str | None = None
+    bl_ref: str | None = None          # B/L number cited by the invoice ("B/L Ref"); differs from bl_number on transshipment
     vessel: str | None = None
     voyage: str | None = None
     port_of_loading: str | None = None
