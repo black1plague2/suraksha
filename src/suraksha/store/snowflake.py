@@ -137,6 +137,28 @@ def _json(obj: Any) -> str:
     return json.dumps(obj, default=str, sort_keys=True)
 
 
+def inline_nulls(sql: str, params: tuple | list | None) -> tuple[str, tuple | None]:
+    """For qmark (`?`) SQL: replace each placeholder whose value is None with a literal NULL and drop it
+    from params. The Snowpark-hosted connector (stored procedures, Streamlit-in-Snowflake) binds Python None
+    as the string 'None' (live ITER-04: "Numeric value 'None' is not recognized" on ROLES.PCT).
+    Only ever inserts the keyword NULL — values themselves are still bound, never interpolated.
+    Assumes no literal '?' in SQL text (true for every statement in this codebase)."""
+    if not params or all(p is not None for p in params):
+        return sql, (tuple(params) if params else None)
+    parts = sql.split("?")
+    if len(parts) - 1 != len(params):
+        raise ValueError(f"placeholder count {len(parts) - 1} != params {len(params)}")
+    out, kept = [parts[0]], []
+    for p, tail in zip(params, parts[1:]):
+        if p is None:
+            out.append("NULL")
+        else:
+            out.append("?")
+            kept.append(p)
+        out.append(tail)
+    return "".join(out), (tuple(kept) or None)
+
+
 def _variant(v: Any) -> Any:
     """VARIANT/ARRAY cells come back from the connector as JSON text."""
     if isinstance(v, (str, bytes)):

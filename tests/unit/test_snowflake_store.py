@@ -298,3 +298,15 @@ def test_qmark_paramstyle_for_snowpark_session_connections():
 def test_pyformat_default_keeps_percent_s(st, conn):
     st.get_company("C1")
     assert "%s" in conn.executed[0][0] and "?" not in conn.executed[0][0]
+
+
+def test_inline_nulls_replaces_only_none_placeholders():
+    from suraksha.store.snowflake import inline_nulls
+    sql, params = inline_nulls("INSERT INTO T (a, b, c, d) VALUES (?, ?, ?, ?)", ("C1", "P1", "DIRECTOR", None))
+    assert sql == "INSERT INTO T (a, b, c, d) VALUES (?, ?, ?, NULL)" and params == ("C1", "P1", "DIRECTOR")
+    sql, params = inline_nulls("SELECT ?, ?", (None, None))
+    assert sql == "SELECT NULL, NULL" and params is None
+    sql, params = inline_nulls("SELECT ?", (EVIL,))  # values are still bound, never interpolated
+    assert sql == "SELECT ?" and params == (EVIL,)
+    with pytest.raises(ValueError):
+        inline_nulls("SELECT ?", (1, None))

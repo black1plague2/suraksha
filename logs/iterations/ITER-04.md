@@ -32,3 +32,8 @@ DECIDE_CASE transaction + `?` binds in owner's-rights proc · container runtime 
 - Fix (master): `SnowflakeStore` converts `%s`→`?` when the connection declares `paramstyle = "qmark"`; the three Snowpark
   shims (sql/07, sql/08, app) declare qmark and their cursors convert too (covers direct MERGEs in 08 and `CALL DECIDE_CASE`
   in the app). +2 tests; proc bodies compile. **338 passed.**
+- Re-run: ADDRESSES loaded (qmark fix confirmed live), then ROLES failed: `Numeric value 'None' is not recognized` (PCT FLOAT).
+  Data holds real Python None (500 roles without pct) — the Snowpark-hosted connector binds None as the string 'None'.
+- Fix (master): `store.snowflake.inline_nulls(sql, params)` swaps a `?` whose value is None for the keyword NULL (values are
+  still bound, never interpolated); used by all three Snowpark shims (07, 08, app); shim executemany routes through execute.
+  +1 test; simulated shim output verified. **339 passed.**

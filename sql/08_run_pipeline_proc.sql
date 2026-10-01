@@ -82,13 +82,13 @@ class _Cur:
         self._c = cur
 
     def execute(self, sql, params=None):
-        sql = sql.replace("%s", "?")  # Snowpark-hosted connector binds with ? (qmark)
+        from suraksha.store.snowflake import inline_nulls  # None would bind as the string 'None'
+        sql, params = inline_nulls(sql.replace("%s", "?"), params)  # Snowpark-hosted connector: qmark
         return self._c.execute(sql, params) if params else self._c.execute(sql)
 
     def executemany(self, sql, rows):
-        sql = sql.replace("%s", "?")
         for r in rows:
-            self._c.execute(sql, tuple(r))
+            self.execute(sql, tuple(r))
 
     def fetchall(self):
         return self._c.fetchall()
