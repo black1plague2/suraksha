@@ -94,8 +94,15 @@ class _Cur:
         return self._c.execute(sql, params) if params else self._c.execute(sql)
 
     def executemany(self, sql, rows):  # loop: portable inside stored procedures
-        for r in rows:
-            self.execute(sql, tuple(r))
+        from suraksha.store.snowflake import batch_values_insert  # multi-row INSERTs (per-row was too slow live)
+        rows = [tuple(r) for r in rows]
+        stmts = batch_values_insert(sql.replace("%s", "?"), rows)
+        if stmts is None:
+            for r in rows:
+                self.execute(sql, r)
+            return
+        for s, p in stmts:
+            self._c.execute(s, p) if p else self._c.execute(s)
 
     def fetchall(self):
         return self._c.fetchall()

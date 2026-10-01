@@ -37,3 +37,8 @@ DECIDE_CASE transaction + `?` binds in owner's-rights proc · container runtime 
 - Fix (master): `store.snowflake.inline_nulls(sql, params)` swaps a `?` whose value is None for the keyword NULL (values are
   still bound, never interpolated); used by all three Snowpark shims (07, 08, app); shim executemany routes through execute.
   +1 test; simulated shim output verified. **339 passed.**
+- Re-run: 07/08/**09 succeeded** (Streamlit app created on warehouse runtime). `CALL LOAD_SYNTH(42)` ran but crawled —
+  Query History showed one `INSERT INTO REGISTRY.ROLES` per row (~6k single-row INSERTs inside the proc).
+- Fix (master): `store.snowflake.batch_values_insert` turns single-row qmark `INSERT … VALUES (?, …)` + N rows into multi-row
+  INSERTs (chunk 300, None → NULL); shims' executemany use it, falling back per-row for `INSERT … SELECT`. Simulated full
+  registry load: **~6,000 → 37 statements**, no None params. +1 test; **340 passed.**

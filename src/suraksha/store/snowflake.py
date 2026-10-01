@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from datetime import date, datetime, timezone
 from typing import Any
 
@@ -157,6 +158,30 @@ def inline_nulls(sql: str, params: tuple | list | None) -> tuple[str, tuple | No
             kept.append(p)
         out.append(tail)
     return "".join(out), (tuple(kept) or None)
+
+
+_VALUES_RE = re.compile(r"^(\s*INSERT\s+INTO\s+.+?\s+VALUES\s*)(\([\s?,]*\))\s*;?\s*$", re.I | re.S)
+
+
+def batch_values_insert(sql: str, rows: list, chunk: int = 300) -> list[tuple[str, tuple | None]] | None:
+    """Turn a single-row qmark `INSERT ... VALUES (?, ?, ...)` + N rows into ceil(N/chunk) multi-row INSERTs.
+    None values become literal NULL (see inline_nulls). Returns None if the statement isn't that shape
+    (caller falls back to per-row execute). Live ITER-04: ~6k single-row INSERTs made LOAD_SYNTH crawl."""
+    m = _VALUES_RE.match(sql)
+    if not m or not rows:
+        return None
+    head, tuple_sql = m.group(1), m.group(2)
+    width = tuple_sql.count("?")
+    stmts = []
+    for i in range(0, len(rows), chunk):
+        groups, params = [], []
+        for row in rows[i:i + chunk]:
+            if len(row) != width:
+                raise ValueError(f"row width {len(row)} != placeholders {width}")
+            groups.append("(" + ", ".join("NULL" if v is None else "?" for v in row) + ")")
+            params.extend(v for v in row if v is not None)
+        stmts.append((head + ", ".join(groups), tuple(params) or None))
+    return stmts
 
 
 def _variant(v: Any) -> Any:

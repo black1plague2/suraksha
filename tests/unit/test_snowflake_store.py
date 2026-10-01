@@ -310,3 +310,16 @@ def test_inline_nulls_replaces_only_none_placeholders():
     assert sql == "SELECT ?" and params == (EVIL,)
     with pytest.raises(ValueError):
         inline_nulls("SELECT ?", (1, None))
+
+
+def test_batch_values_insert_chunks_and_nulls():
+    from suraksha.store.snowflake import batch_values_insert
+    rows = [("C1", "P1", "DIRECTOR", None), ("C2", "P2", "UBO", 51.0), ("C3", "P3", "UBO", EVIL)]
+    stmts = batch_values_insert("INSERT INTO R (a, b, c, d) VALUES (?, ?, ?, ?)", rows, chunk=2)
+    assert len(stmts) == 2
+    s0, p0 = stmts[0]
+    assert s0 == "INSERT INTO R (a, b, c, d) VALUES (?, ?, ?, NULL), (?, ?, ?, ?)"
+    assert p0 == ("C1", "P1", "DIRECTOR", "C2", "P2", "UBO", 51.0)
+    assert stmts[1] == ("INSERT INTO R (a, b, c, d) VALUES (?, ?, ?, ?)", ("C3", "P3", "UBO", EVIL))
+    # INSERT ... SELECT (e.g. PARSE_JSON) is not batchable -> caller falls back to per-row
+    assert batch_values_insert("INSERT INTO P (a, t) SELECT ?, PARSE_JSON(?)", [("x", "[]")]) is None
