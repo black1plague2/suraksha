@@ -91,7 +91,8 @@ def score(inv: Investigation, settings: Settings) -> ConfidenceResult:
         add("R_TIMING_OVERLAP", f"Second pledge {t} day(s) after the first, within the "
             f"{settings.timing_window_days}-day window.", [m.citation])
 
-    total = round(min(1.0, sum(e.weight for e in ev)), 6)
+    # 4 dp so Python and sql/04_rules.sql (exact decimals) agree at the threshold boundary
+    total = round(min(1.0, sum(e.weight for e in ev)), 4)
     band = ConfidenceBand.HIGH if total >= settings.confidence_threshold else ConfidenceBand.LOW
 
     missing: list[str] = []

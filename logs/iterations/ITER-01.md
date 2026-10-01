@@ -43,3 +43,14 @@
 ## Master changes during integration
 - `pipeline.py` passes `store=` to `draft_str`; `config.py` adds `SURAKSHA_SLACK_SIGNING_SECRET` (RUNBOOK referenced it).
 - CONTRACTS.md: citation conventions + private fingerprint keys documented.
+
+## ITER-01b — Snowflake layer landed
+- snowflake-infra (Sonnet): `sql/00–05`, `store/snowflake.py` (SnowflakeStore, parameterised, consortium writes via per-bank
+  owner's-rights procs SP_PLEDGE_BANK_A/B/C), `integrations/cortex.py` (AI_EXTRACT syntax confirmed in docs; AI_COMPLETE from
+  memory), `scripts/load_synth_to_snowflake.py`, `docs/SNOWFLAKE_DEPLOY.md`. Fake-connector tests: 17 passed.
+- **Unverified live:** proc `:param` binds, `CALL ... TO_TIMESTAMP_NTZ(%s)`, AI_EXTRACT literal in a view, AI_COMPLETE model
+  availability, SNOWFLAKE_SSE stage + TO_FILE, CREATE SHARE of secure view. → first CoCo session must run these.
+- Contract requests resolved: (1) confidence score rounded to 4 dp (master edit) so SQL/Python agree; (2) SQL `V_AUDIT_VERIFY`
+  checks linkage + seq only — content hash verification stays in Python `AuditLog.verify()` (canonical JSON is Python-defined);
+  (3) `append_audit` read-then-insert is non-atomic — OK for single writer, known gap for multi-writer.
+- Full suite after merge: **114 passed**; eval unchanged, all goals PASS.
