@@ -88,7 +88,7 @@ class Suraksha:
             return done(PipelineStatus.NEED_MORE_EVIDENCE, inv, conf)
 
         # 5. Report
-        draft = report.draft_str(req, fields, inv, conf, self.settings)
+        draft = report.draft_str(req, fields, inv, conf, self.settings, store=self.store)
         errors = report.validate_citations(draft)
         if errors:  # G3: never hand an officer an uncited claim
             log.error("str_citation_errors", extra={"ctx": {**ctx, "errors": errors}})

@@ -90,6 +90,10 @@ Ex Vessel: {vessel} / {voyage}
 ```
 Policy clauses: ~12 synthetic clauses with ids like `TF-3.1`, `TF-4.2`, `AML-7.4`, tags such as `duplicate_financing`, `collateral`, `related_party`, `str_filing`, `hold`.
 
+**Citation conventions (ITER-01 resolution):** request-level facts use `Citation(REGISTRY, "requests:<request_id>")`;
+persons `persons:<id>`; addresses `addresses:<id>`. Fingerprints may carry extra private keys (`cargo_m1`, `cargo_p1`
+neighbour-band probes) — `to_entry` strips them so the shared ledger holds only `exact`/`cargo`/`bl`.
+
 ## B. `intake` + `fingerprint` — agent **match-engine** (Sonnet)
 Files: `src/suraksha/agents/intake.py`, `src/suraksha/agents/fingerprint.py`, `tests/unit/test_intake.py`, `tests/unit/test_fingerprint.py`
 ```python

@@ -24,6 +24,7 @@ class Settings:
     reporting_entity: str = os.getenv("SURAKSHA_REPORTING_ENTITY", "Bank A (synthetic)")
     principal_officer: str = os.getenv("SURAKSHA_PRINCIPAL_OFFICER", "Principal Officer (synthetic)")
     slack_webhook_url: str | None = field(default_factory=lambda: os.getenv("SURAKSHA_SLACK_WEBHOOK"))
+    slack_signing_secret: str | None = field(default_factory=lambda: os.getenv("SURAKSHA_SLACK_SIGNING_SECRET"))
 
 
 # Rule weights used by agents/confidence.py. Deterministic, documented, no black box.

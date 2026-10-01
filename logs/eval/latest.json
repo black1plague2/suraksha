@@ -1,0 +1,85 @@
+{
+  "run_at": "2026-10-01T22:11:03",
+  "seed": 42,
+  "requests": 173,
+  "confusion": {
+    "tp": 43,
+    "fn": 0,
+    "fp": 2,
+    "tn": 128
+  },
+  "detection_rate": 1.0,
+  "false_positive_rate": 0.0154,
+  "latency_ms": {
+    "p50": 0.51,
+    "max": 35.23
+  },
+  "str_drafted": 36,
+  "citation_errors": {},
+  "by_scenario": {
+    "clean": {
+      "CLEAR": 60
+    },
+    "decoy_anchor": {
+      "CLEAR": 20
+    },
+    "decoy_coloaded": {
+      "CLEAR": 5
+    },
+    "decoy_hard_same_voyage_same_qty": {
+      "NEED_MORE_EVIDENCE": 2
+    },
+    "decoy_related_diff_cargo": {
+      "CLEAR": 5
+    },
+    "decoy_same_bank_refinance": {
+      "CLEAR": 4
+    },
+    "decoy_same_commodity_diff_voyage": {
+      "CLEAR": 4
+    },
+    "dup_exact_same_borrower": {
+      "PENDING_APPROVAL": 8
+    },
+    "dup_exact_shell": {
+      "PENDING_APPROVAL": 6
+    },
+    "dup_format_noise": {
+      "PENDING_APPROVAL": 6
+    },
+    "dup_original_exact_same_borrower": {
+      "CLEAR": 5
+    },
+    "dup_original_exact_shell": {
+      "CLEAR": 5
+    },
+    "dup_original_format_noise": {
+      "CLEAR": 5
+    },
+    "dup_original_reissued_bl": {
+      "CLEAR": 5
+    },
+    "dup_original_rounded_qty": {
+      "CLEAR": 5
+    },
+    "dup_original_weak_unlinked": {
+      "CLEAR": 5
+    },
+    "dup_reissued_bl": {
+      "PENDING_APPROVAL": 7
+    },
+    "dup_rounded_qty": {
+      "PENDING_APPROVAL": 9
+    },
+    "dup_weak_unlinked": {
+      "NEED_MORE_EVIDENCE": 7
+    }
+  },
+  "goals": {
+    "G1_detection>=0.90": true,
+    "G1_fpr<0.10": true,
+    "G2_latency<5min": true,
+    "G3_all_citations_valid": true,
+    "G4_human_in_control+audit_chain": true
+  }
+}
