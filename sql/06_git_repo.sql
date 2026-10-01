@@ -1,6 +1,6 @@
 -- ============================================================================
 -- Suraksha 06_git_repo.sql : attach the GitHub repo to Snowflake and deploy
--- everything (00..05, 07..09) straight from Git.  Idempotent.  Browser-only flow.
+-- everything (00..05, 07..10) straight from Git.  Idempotent.  Browser-only flow.
 --
 -- RUN THIS FILE FIRST, in a Snowsight SQL worksheet, as ACCOUNTADMIN.
 -- Account: <ORG-ACCOUNT> (Enterprise edition), warehouse COMPUTE_WH.
@@ -73,6 +73,7 @@ EXECUTE IMMEDIATE FROM @SURAKSHA.CORE.SURAKSHA_REPO/branches/main/sql/05_cortex.
 EXECUTE IMMEDIATE FROM @SURAKSHA.CORE.SURAKSHA_REPO/branches/main/sql/07_load_synth_proc.sql;
 EXECUTE IMMEDIATE FROM @SURAKSHA.CORE.SURAKSHA_REPO/branches/main/sql/08_run_pipeline_proc.sql;
 EXECUTE IMMEDIATE FROM @SURAKSHA.CORE.SURAKSHA_REPO/branches/main/sql/09_streamlit.sql;
+EXECUTE IMMEDIATE FROM @SURAKSHA.CORE.SURAKSHA_REPO/branches/main/sql/10_decide_case.sql;
 
 -- ---- D. refresh later (after pushing new commits): run ONLY the FETCH, then re-run
 --         whichever sql/NN file changed (each is idempotent).

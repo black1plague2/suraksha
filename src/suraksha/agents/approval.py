@@ -19,9 +19,18 @@ log = get_logger(__name__)
 GENESIS = "0" * 64
 
 
+def _canon_at(at: datetime) -> str:
+    """Timezone-neutral form: naive UTC, `str()` style. Snowflake stores TIMESTAMP_NTZ and returns naive values,
+    so hashing the aware form ('+00:00') would make chains read back from Snowflake fail verification.
+    Must match sql/10_decide_case.sql (which hashes a naive-UTC datetime via json default=str)."""
+    if at.tzinfo is not None:
+        at = at.astimezone(timezone.utc).replace(tzinfo=None)
+    return str(at)
+
+
 def _canonical(seq: int, at: datetime, actor: str, action: str, subject_id: str, payload: dict[str, Any]) -> str:
     return json.dumps(
-        {"seq": seq, "at": at, "actor": actor, "action": action, "subject_id": subject_id, "payload": payload},
+        {"seq": seq, "at": _canon_at(at), "actor": actor, "action": action, "subject_id": subject_id, "payload": payload},
         sort_keys=True, separators=(",", ":"), default=str,
     )
 

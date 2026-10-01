@@ -24,3 +24,12 @@ See "Known unknowns" in docs/SNOWSIGHT_RUNBOOK.md: COPY FILES from git stage, fi
 
 ## Observed
 - `tests/adversarial_v2` (other agent) had 3 failing tests during my run; unrelated to these files.
+
+## Round 2 (ITER-04)
+Fixes after Snowflake Cortex Code reviewed the live deploy.
+- `sql/09`: container runtime (`RUNTIME_NAME='SYSTEM$ST_CONTAINER_RUNTIME_PY3_11'`, `COMPUTE_POOL=SYSTEM_COMPUTE_POOL_CPU`, QUERY_WAREHOUSE, MAIN_FILE `streamlit_app.py`), GRANT USAGE to SURAKSHA_APP; warehouse variant kept commented. Confirmed on docs.snowflake.com: runtime name, that container runtime reads dependencies from pyproject.toml / requirements.txt (NOT environment.yml), and that EXTERNAL_ACCESS_INTEGRATIONS is needed to install from PyPI, so section A creates a PyPI network rule + integration (contrary to the earlier assumption it is not needed).
+- `sql/07`: LOAD_SYNTH is ADMIN-only (REVOKE from SURAKSHA_APP).
+- G4 in SQL: `sql/01` CASES grant is now SELECT+INSERT (UPDATE/DELETE/TRUNCATE revoked); new `sql/10_decide_case.sql` DECIDE_CASE (owner's rights Python proc, same canonical JSON + hash chain as approval.py, naive-UTC `at`); wired into `sql/06` after 09.
+- Runbook: TEST step 6 proves G4 in SQL; known unknowns updated. Tests extended.
+- Unverified live: everything above (EAI/compute-pool grants, proc binds/transactions, MERGE needing UPDATE on CASES).
+- Note: approval._canonical hashes `str(at)`; the Python store writes aware-UTC but reads back naive, so a Python verify() over Snowflake rows may differ in "+00:00" for rows written by Python. DECIDE_CASE hashes the naive form (what is stored).

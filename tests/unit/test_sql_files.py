@@ -95,7 +95,7 @@ def test_06_deploy_order_and_files_exist():
     raw = (SQL_DIR / "06_git_repo.sql").read_text(encoding="utf-8")
     text = chr(10).join(l for l in raw.splitlines() if not l.lstrip().startswith("--"))
     refs = re.findall(r"EXECUTE IMMEDIATE FROM @SURAKSHA\.CORE\.SURAKSHA_REPO/branches/main/(sql/[\w.]+\.sql)", text)
-    assert [Path(r).name[:2] for r in refs] == ["00", "01", "02", "03", "04", "05", "07", "08", "09"]
+    assert [Path(r).name[:2] for r in refs] == ["00", "01", "02", "03", "04", "05", "07", "08", "09", "10"]
     for r in refs:
         assert (ROOT / r).is_file(), r
 
@@ -118,9 +118,7 @@ def test_09_streamlit_main_file_and_env():
     text = (SQL_DIR / "09_streamlit.sql").read_text(encoding="utf-8")
     m = re.search(r"MAIN_FILE\s*=\s*'([^']+)'", text)
     assert m and (ROOT / m.group(1)).is_file()
-    assert "/" not in m.group(1), "warehouse runtime needs a bare filename"
     assert "QUERY_WAREHOUSE" in text
-    assert (ROOT / "environment.yml").is_file()
     shim = (ROOT / "streamlit_app.py").read_text(encoding="utf-8")
     assert "app" in shim and "src" in shim
 
@@ -135,3 +133,65 @@ def test_proc_python_bodies_compile_and_import_real_modules(name):
         rel = Path("src", *mod.split("."))
         assert (ROOT / rel).with_suffix(".py").is_file() or (ROOT / rel / "__init__.py").is_file(), mod
     assert re.search(r"HANDLER = 'run'", text) and "def run(session, seed)" in bodies[0]
+
+
+def _code(name: str) -> str:
+    raw = (SQL_DIR / name).read_text(encoding="utf-8")
+    return "\n".join(l for l in raw.splitlines() if not l.lstrip().startswith("--"))
+
+
+def test_09_container_runtime():
+    code = _code("09_streamlit.sql")
+    assert "RUNTIME_NAME = 'SYSTEM$ST_CONTAINER_RUNTIME_PY3_11'" in code
+    assert "COMPUTE_POOL = SYSTEM_COMPUTE_POOL_CPU" in code
+    assert "QUERY_WAREHOUSE = SURAKSHA_WH" in code
+    assert "GRANT USAGE ON STREAMLIT SURAKSHA.CORE.SURAKSHA_APP TO ROLE SURAKSHA_APP" in code
+    raw = (SQL_DIR / "09_streamlit.sql").read_text(encoding="utf-8")
+    assert "FALLBACK" in raw
+
+
+def test_load_synth_not_granted_to_app():
+    code = _code("07_load_synth_proc.sql")
+    assert not re.search(r"GRANT\s+USAGE\s+ON\s+PROCEDURE\s+SURAKSHA\.CORE\.LOAD_SYNTH[^;]*SURAKSHA_APP", code)
+
+
+def test_cases_app_has_no_update_delete():
+    for name in ("01_tables.sql", "10_decide_case.sql"):
+        code = _code(name)
+        for g in re.findall(r"GRANT\s+([^;]*?)\s+ON\s+TABLE\s+SURAKSHA\.CORE\.CASES\s+TO\s+ROLE\s+SURAKSHA_APP", code):
+            assert not re.search(r"UPDATE|DELETE|ALL|OWNERSHIP", g), g
+    assert re.search(r"REVOKE\s+UPDATE,\s*DELETE[^;]*ON\s+TABLE\s+SURAKSHA\.CORE\.CASES\s+FROM\s+ROLE\s+SURAKSHA_APP",
+                     _code("10_decide_case.sql"))
+
+
+def test_10_decide_case():
+    text = (SQL_DIR / "10_decide_case.sql").read_text(encoding="utf-8")
+    assert "EXECUTE AS OWNER" in text
+    assert "GRANT USAGE ON PROCEDURE SURAKSHA.CORE.DECIDE_CASE(STRING, STRING, STRING, STRING) TO ROLE SURAKSHA_APP" in text
+    body = re.findall(r"\$\$(.*?)\$\$", text, re.S)
+    assert len(body) == 1
+    compile(body[0], "10_decide_case.sql", "exec")
+    for needle in ("system:", "PENDING_APPROVAL", "CASE_APPROVED", "CASE_FILED", "HOLD_RECOMMENDED",
+                   "CASE_REJECTED", "FILED", "CLOSED", "sort_keys=True", 'separators=(",", ":")', "default=str"):
+        assert needle in body[0], needle
+
+
+def test_10_decide_case_hash_matches_approval_py():
+    """Execute the proc's pure helpers and compare with agents/approval.py."""
+    import sys
+    from datetime import datetime
+
+    sys.path.insert(0, str(ROOT / "src"))
+    from suraksha.agents import approval
+
+    text = (SQL_DIR / "10_decide_case.sql").read_text(encoding="utf-8")
+    ns: dict = {}
+    exec(compile(re.findall(r"\$\$(.*?)\$\$", text, re.S)[0], "proc", "exec"), ns)
+    at = datetime(2026, 1, 2, 3, 4, 5, 678000)
+    args = (7, at, "officer:Priya Nair", "CASE_APPROVED", "CASE-X", {"reason": "ok", "a": [1]})
+    assert ns["_canonical"](*args) == approval._canonical(*args)
+    assert ns["_hash"]("0" * 64, "abc") == approval._hash("0" * 64, "abc")
+    assert ns["_officer"]("officer: Priya ") == "Priya"
+    for bad in ("", "  ", "system:bot", "System:x"):
+        with pytest.raises(ValueError):
+            ns["_officer"](bad)

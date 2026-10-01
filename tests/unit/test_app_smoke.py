@@ -31,3 +31,153 @@ def test_mlro_has_verify_button():
     at.sidebar.radio(key="persona").set_value("Compliance officer (MLRO)").run()
     assert not at.exception, at.exception
     assert any("Verify" in b.label for b in at.button)
+
+
+# ------------------------------------------------------------------ Snowflake mode (fake session)
+import json  # noqa: E402
+import sys  # noqa: E402
+import types  # noqa: E402
+from datetime import datetime, timezone  # noqa: E402
+
+
+class _FakeCursor:
+    def __init__(self, db):
+        self.db = db
+        self.description = []
+        self._rows = []
+
+    def execute(self, sql, params=None):
+        self.db.calls.append((sql, params))
+        for needle, (cols, rows) in self.db.routes:
+            if needle in sql:
+                if callable(rows):
+                    rows = rows(params)
+                self.description = [(c,) for c in cols]
+                self._rows = rows
+                return
+        self.description, self._rows = [], []
+
+    def fetchall(self):
+        return self._rows
+
+    def close(self):
+        pass
+
+
+class _FakeDB:
+    def __init__(self, routes):
+        self.routes, self.calls = routes, []
+
+    def cursor(self):
+        return _FakeCursor(self)
+
+
+class _FakeSession:
+    def __init__(self, routes):
+        self.connection = _FakeDB(routes)
+
+
+_RES_COLS = ["REQUEST_ID", "STATUS", "PY_SCORE", "PY_BAND", "PY_RULES", "BANK_ID", "BORROWER_ID", "AMOUNT",
+             "CURRENCY", "SUBMITTED_AT", "COMMODITY"]
+_CASE_COLS = ["CASE_ID", "REQUEST_ID", "REPORT_ID", "STATUS", "HOLD_RECOMMENDED", "DECIDED_BY", "DECIDED_AT",
+              "REASON"]
+
+
+def _audit_rows():
+    """A valid hash chain whose timestamps come back naive (as Snowflake TIMESTAMP_NTZ does)."""
+    from suraksha.agents.approval import AuditLog
+    from suraksha.store.memory import MemoryStore
+
+    st_ = MemoryStore()
+    log = AuditLog(st_)
+    log.append("system:intake", "REQUEST_RECEIVED", "R1", {"a": 1})
+    log.append("system:pipeline", "EVIDENCE_SCORED", "R1", {"b": 2})
+    return [(r.seq, r.at.replace(tzinfo=None), r.actor, r.action, r.subject_id, json.dumps(r.payload),
+             r.prev_hash, r.entry_hash) for r in st_.list_audit()]
+
+
+def _routes(results, decide=None):
+    now = datetime(2026, 1, 5, 12, 0, 0)
+    res_rows = [("R1", "PENDING_APPROVAL", 0.91, "HIGH", '["R_EXACT_HASH"]', "BANK_A", "C0001", 1000.0, "INR",
+                 now, "rice"),
+                ("R2", "CLEAR", None, None, "[]", "BANK_B", "C0002", 500.0, "INR", now, "wheat")]
+    return [
+        ("PIPELINE_RESULTS", (_RES_COLS, results and res_rows or [])),
+        ("CORE.CASES", (_CASE_COLS, [("CASE-R1", "R1", "REP-R1", "PENDING_APPROVAL", False, None, None, None)]
+                        if results else [])),
+        ("REGISTRY.COMPANIES", (["COMPANY_ID", "NAME", "REG_NO", "ADDRESS_ID", "PHONE", "INCORPORATED", "COUNTRY"],
+                                [("C0001", "Alpha Ltd", "X1", "A1", "1", None, "IN"),
+                                 ("C0002", "Beta Ltd", "X2", "A2", "2", None, "IN")])),
+        ("V_AUDIT_VERIFY", (["BREAKS"], [(0,)])),
+        ("AUDIT_LOG", (["SEQ", "AT", "ACTOR", "ACTION", "SUBJECT_ID", "PAYLOAD", "PREV_HASH", "ENTRY_HASH"],
+                       _audit_rows())),
+        ("DECIDE_CASE", (["DECIDE_CASE"], decide or (lambda p: [(json.dumps({"case_id": p[0], "status": "FILED"}),)]))),
+    ]
+
+
+@pytest.fixture
+def fake_snowflake(monkeypatch):
+    def install(session):
+        pkg = types.ModuleType("snowflake")
+        sp = types.ModuleType("snowflake.snowpark")
+        ctx = types.ModuleType("snowflake.snowpark.context")
+        ctx.get_active_session = lambda: session
+        for name, mod in (("snowflake", pkg), ("snowflake.snowpark", sp), ("snowflake.snowpark.context", ctx)):
+            monkeypatch.setitem(sys.modules, name, mod)
+        import streamlit as st
+        st.cache_resource.clear()
+    yield install
+    import streamlit as st
+    st.cache_resource.clear()
+
+
+def _sidebar_text(at):
+    return " ".join(c.value for c in at.sidebar.caption)
+
+
+def test_snowflake_backend_detected_empty_results(fake_snowflake):
+    fake_snowflake(_FakeSession(_routes(results=False)))
+    at = AppTest.from_file(APP, default_timeout=120).run()
+    assert not at.exception, at.exception
+    assert "Backend: snowflake" in _sidebar_text(at)
+    assert any("RUN_PIPELINE(42)" in i.value for i in at.info)
+
+
+@pytest.mark.parametrize("page", PAGES)
+def test_snowflake_pages_render(fake_snowflake, page):
+    fake_snowflake(_FakeSession(_routes(results=True)))
+    at = AppTest.from_file(APP, default_timeout=120).run()
+    assert not at.exception, at.exception
+    at.sidebar.radio(key="persona").set_value(page).run()
+    assert not at.exception, at.exception
+    assert "Backend: snowflake" in _sidebar_text(at)
+
+
+def test_snowflake_verify_and_decide(fake_snowflake):
+    session = _FakeSession(_routes(results=True))
+    fake_snowflake(session)
+    at = AppTest.from_file(APP, default_timeout=120).run()
+    at.sidebar.radio(key="persona").set_value("Compliance officer (MLRO)").run()
+    assert not at.exception, at.exception
+    next(b for b in at.button if "Verify" in b.label).click().run()
+    assert not at.exception, at.exception
+    assert any("Audit chain intact" in s.value for s in at.success), [s.value for s in at.success]
+    # approve routes through DECIDE_CASE, never the in-memory engine
+    at.text_input(key="officer_CASE-R1").set_value("A. Officer")
+    next(b for b in at.button if "Approve" in b.label).click().run()
+    assert not at.exception, at.exception
+    calls = [c for c in session.connection.calls if "DECIDE_CASE" in c[0]]
+    assert calls and calls[0][1] == ("CASE-R1", "APPROVE", "A. Officer", "")
+
+
+def test_snowflake_decide_error_shown_verbatim(fake_snowflake):
+    def refuse(p):
+        raise RuntimeError("system actors may not decide cases")
+
+    fake_snowflake(_FakeSession(_routes(results=True, decide=refuse)))
+    at = AppTest.from_file(APP, default_timeout=120).run()
+    at.sidebar.radio(key="persona").set_value("Compliance officer (MLRO)").run()
+    at.text_input(key="officer_CASE-R1").set_value("system:pipeline")
+    next(b for b in at.button if "Approve" in b.label).click().run()
+    assert not at.exception, at.exception
+    assert any("system actors may not decide cases" in e.value for e in at.error)

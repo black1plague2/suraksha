@@ -13,6 +13,11 @@ _(agents append here; master applies and records the resolution)_
 
 ---
 
+## 2026-10-01 · ITER-04 · CoCo PLAN done, BUILD 00–05 live ✅, fixes pushed for 07–10
+- Evidence: `docs/evidence/PLAN_coco_review.md`, `docs/evidence/BUILD_coco_00-05.md`. 336 tests pass.
+- NEXT: user FETCHes, CoCo runs sql/07, 08, 09, 10 → then RUN (`CALL LOAD_SYNTH(42)`, `CALL RUN_PIPELINE(42)`, open app) → TEST.
+- Details: `logs/iterations/ITER-04.md`.
+
 ## 2026-10-01 · ITER-03 · DONE locally — 322 tests, red-team v1+v2 100%/0% FPR; live Snowflake BUILD started
 - Git repo connected in Snowsight (LS shows sql/00–09). Waiting on Cortex Code PLAN output from the user.
 - Details + ITER-04 backlog: `logs/iterations/ITER-03.md`.

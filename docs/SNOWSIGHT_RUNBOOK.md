@@ -21,7 +21,7 @@ In Snowsight open Cortex Code (CoCo) and paste, one at a time:
 Evidence: screenshot each CoCo answer.
 
 ## 2. BUILD
-1. Open a new SQL worksheet, paste the whole of `sql/06_git_repo.sql` (the bootstrap statements cannot come from Git because the repo does not exist yet; everything after them pulls from Git). Run all, as ACCOUNTADMIN. It: creates `SURAKSHA` + `SURAKSHA.CORE`, creates the Git repository, `FETCH`es, lists files (`LS`), then runs 00, 01, 02, 03, 04, 05, 07, 08, 09 in order straight from Git.
+1. Open a new SQL worksheet, paste the whole of `sql/06_git_repo.sql` (the bootstrap statements cannot come from Git because the repo does not exist yet; everything after them pulls from Git). Run all, as ACCOUNTADMIN. It: creates `SURAKSHA` + `SURAKSHA.CORE`, creates the Git repository, `FETCH`es, lists files (`LS`), then runs 00, 01, 02, 03, 04, 05, 07, 08, 09, 10 in order straight from Git.
    - Ordering note: the DB must exist before the repo object, hence the bootstrap at the top; `00_setup.sql` is idempotent and then takes ownership of DB/schemas for `SURAKSHA_ADMIN`.
    - Run it in pieces if you prefer (section A+B, check `LS`, then section C); if one `EXECUTE IMMEDIATE FROM` fails, fix the file, push, `ALTER GIT REPOSITORY SURAKSHA.CORE.SURAKSHA_REPO FETCH;`, re-run that file only.
 2. Alternative with CoCo: "Run `sql/06_git_repo.sql` from my repo and report each error; do not change roles other than as the script does."
@@ -60,6 +60,17 @@ CALL SURAKSHA.CORE.RUN_PIPELINE(42);      -- JSON: detection_rate, false_positiv
 3. Audit chain: `SELECT * FROM SURAKSHA.CORE.V_AUDIT_VERIFY_SUMMARY;` (chain_intact = TRUE) and `DELETE FROM SURAKSHA.CORE.AUDIT_LOG;` must fail with insufficient privileges.
 4. Consortium isolation: `SELECT * FROM SURAKSHA.CONSORTIUM.V_SHARED_LEDGER LIMIT 5;` shows hashes only, no names.
 5. Cortex (optional): `SELECT AI_COMPLETE('claude-sonnet-4-5', 'Say OK');`
+6. Gate G4 (human approval) enforced in SQL. Pick a pending case: `SELECT case_id FROM SURAKSHA.CORE.CASES WHERE status = 'PENDING_APPROVAL' LIMIT 2;`
+   ```sql
+   USE ROLE SURAKSHA_APP;
+   CALL SURAKSHA.CORE.DECIDE_CASE('<case_id>', 'APPROVE', 'system:bot', '');   -- must ERROR (system actor)
+   CALL SURAKSHA.CORE.DECIDE_CASE('<case_id>', 'REJECT',  'Priya Nair', '');   -- must ERROR (reason required)
+   CALL SURAKSHA.CORE.DECIDE_CASE('<case_id>', 'APPROVE', 'Priya Nair', '');   -- succeeds: FILED, hold_recommended TRUE
+   CALL SURAKSHA.CORE.DECIDE_CASE('<case_id>', 'APPROVE', 'Priya Nair', '');   -- must ERROR (already decided)
+   UPDATE SURAKSHA.CORE.CASES SET status = 'FILED' WHERE case_id = '<other_case_id>';  -- must fail: insufficient privileges
+   SELECT * FROM SURAKSHA.CORE.V_AUDIT_VERIFY_SUMMARY;   -- chain_intact = TRUE; 3 new rows (CASE_APPROVED, CASE_FILED, HOLD_RECOMMENDED) by officer:Priya Nair
+   ```
+   Also `DELETE FROM SURAKSHA.CORE.CASES ...` fails, and `CALL SURAKSHA.CORE.LOAD_SYNTH(42)` as SURAKSHA_APP fails (admin only).
 
 ## 5. Evidence checklist (screenshots)
 - [ ] CoCo PLAN answers (3)
@@ -71,6 +82,7 @@ CALL SURAKSHA.CORE.RUN_PIPELINE(42);      -- JSON: detection_rate, false_positiv
 - [ ] Parity query returning 0 rows
 - [ ] `V_AUDIT_VERIFY_SUMMARY` and the failed `DELETE`
 - [ ] `V_SHARED_LEDGER` (hash-only)
+- [ ] G4 in SQL: `DECIDE_CASE` with `system:bot` errors, named officer succeeds, `UPDATE CASES` as SURAKSHA_APP fails
 - [ ] The Streamlit app, each persona page
 - [ ] Snowsight query history showing the calls (proves it ran in Snowflake)
 
@@ -78,4 +90,5 @@ CALL SURAKSHA.CORE.RUN_PIPELINE(42);      -- JSON: detection_rate, false_positiv
 - `COPY FILES INTO @CORE.CODE FROM <git repo>` and `session.file.get` in a procedure (how the `suraksha` package is delivered; docs only show single-file `IMPORTS` from a git repo).
 - `session.connection` (or private `session._conn._conn`) as a connector connection with `%s` binds.
 - `GRANT READ ON GIT REPOSITORY`; `CREATE STREAMLIT ... FROM <git path>` copying the whole tree (warehouse runtime requires a bare `MAIN_FILE`, hence the root `streamlit_app.py` shim + `environment.yml`).
-- Account may default to Streamlit container runtime (needs a compute pool); see comment in `sql/09_streamlit.sql`.
+- `sql/09` targets the container runtime (`RUNTIME_NAME = 'SYSTEM$ST_CONTAINER_RUNTIME_PY3_11'`, `COMPUTE_POOL = SYSTEM_COMPUTE_POOL_CPU`). Container runtime reads dependencies from `pyproject.toml` or `requirements.txt` (not `environment.yml`) and, per the docs, needs an external access integration for PyPI (`SURAKSHA_PYPI_EAI`, created in section A of the file). Warehouse-runtime variant is commented in the file as fallback.
+- `DECIDE_CASE` (`sql/10`): Snowpark `session.sql(..., params=[...])` binds, `BEGIN/COMMIT` inside an owner's-rights proc, and the `number of rows updated` result column of `UPDATE`. App-side code that MERGE-upserts CASES (`save_case`) needs UPDATE and will now fail for SURAKSHA_APP: decisions must go through `DECIDE_CASE`, and new cases must be plain INSERTs.

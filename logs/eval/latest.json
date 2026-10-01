@@ -1,5 +1,5 @@
 {
-  "run_at": "2026-10-01T22:40:13",
+  "run_at": "2026-10-01T22:49:55",
   "seed": 42,
   "requests": 173,
   "confusion": {
@@ -11,8 +11,8 @@
   "detection_rate": 1.0,
   "false_positive_rate": 0.0154,
   "latency_ms": {
-    "p50": 0.74,
-    "max": 35.96
+    "p50": 0.71,
+    "max": 37.17
   },
   "str_drafted": 36,
   "citation_errors": {},

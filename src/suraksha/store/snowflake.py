@@ -446,16 +446,18 @@ class SnowflakeStore:
         )
 
     def save_case(self, case: Case) -> None:
+        """Insert-only. The app role has no UPDATE on CASES (G4 enforced in SQL), so decisions on Snowflake go
+        through `CALL SURAKSHA.CORE.DECIDE_CASE(...)` (sql/10), never through this method."""
+        existing = self.get_case(case.case_id)
+        if existing is not None:
+            if existing == case:
+                return  # open_case is idempotent
+            raise PermissionError(
+                f"case {case.case_id} cannot be modified directly on Snowflake; "
+                "use CALL SURAKSHA.CORE.DECIDE_CASE(case_id, decision, officer, reason)")
         self._exec(
-            f"MERGE INTO {T_CASES} t USING (SELECT %s AS case_id, %s AS request_id, %s AS report_id, %s AS status, "
-            "%s AS hold_recommended, %s AS decided_by, TO_TIMESTAMP_NTZ(%s) AS decided_at, %s AS reason) s "
-            "ON t.case_id = s.case_id "
-            "WHEN MATCHED THEN UPDATE SET request_id = s.request_id, report_id = s.report_id, status = s.status, "
-            "hold_recommended = s.hold_recommended, decided_by = s.decided_by, decided_at = s.decided_at, "
-            "reason = s.reason "
-            "WHEN NOT MATCHED THEN INSERT (case_id, request_id, report_id, status, hold_recommended, decided_by, "
-            "decided_at, reason) VALUES (s.case_id, s.request_id, s.report_id, s.status, s.hold_recommended, "
-            "s.decided_by, s.decided_at, s.reason)",
+            f"INSERT INTO {T_CASES} (case_id, request_id, report_id, status, hold_recommended, decided_by, "
+            "decided_at, reason) SELECT %s, %s, %s, %s, %s, %s, TO_TIMESTAMP_NTZ(%s), %s",
             (case.case_id, case.request_id, case.report_id, case.status.value, case.hold_recommended,
              case.decided_by, _ts(case.decided_at), case.reason),
         )
