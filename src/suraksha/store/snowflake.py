@@ -56,6 +56,7 @@ T_FIELDS = f"{DB}.CORE.REQUEST_FIELDS"
 T_REPORTS = f"{DB}.CORE.REPORTS"
 T_CASES = f"{DB}.CORE.CASES"
 T_AUDIT = f"{DB}.CORE.AUDIT_LOG"
+T_LEDGER = f"{DB}.CONSORTIUM.LEDGER"  # base table; only the owner (SURAKSHA_ADMIN) may write it directly
 V_LEDGER = f"{DB}.CONSORTIUM.V_SHARED_LEDGER"
 PLEDGE_PROCS = {b: f"{DB}.CONSORTIUM.SP_PLEDGE_{b}" for b in BANKS}
 
@@ -184,6 +185,42 @@ def batch_values_insert(sql: str, rows: list, chunk: int = 300) -> list[tuple[st
     return stmts
 
 
+_SELECT_RE = re.compile(r"^(\s*INSERT\s+INTO\s+.+?\s)(SELECT\s+.+?)\s*;?\s*$", re.I | re.S)
+
+
+def batch_select_insert(sql: str, rows: list, chunk: int = 200) -> list[tuple[str, tuple | None]] | None:
+    """Generalisation of batch_values_insert for `INSERT INTO t (cols) SELECT <exprs with placeholders>`
+    (needed for PARSE_JSON(?) / TO_TIMESTAMP_NTZ(?) columns, which VALUES cannot hold). N rows become
+    ceil(N/chunk) statements `INSERT ... SELECT e1, e2 UNION ALL SELECT e1, e2 ...`; each None value is
+    replaced by the keyword NULL (so TO_TIMESTAMP_NTZ(NULL) / PARSE_JSON(NULL) are legal and nothing binds
+    as the string 'None'). Accepts %s or ? placeholders; the output always uses `?`. Returns None if the SQL
+    is not INSERT ... SELECT (caller falls back to per-row execute)."""
+    sql = sql.replace("%s", "?")
+    m = _SELECT_RE.match(sql)
+    if not m or not rows:
+        return None
+    head, select = m.group(1), m.group(2)
+    width = select.count("?")
+    parts = select.split("?")
+    stmts = []
+    for i in range(0, len(rows), chunk):
+        selects, params = [], []
+        for row in rows[i:i + chunk]:
+            if len(row) != width:
+                raise ValueError(f"row width {len(row)} != placeholders {width}")
+            out = [parts[0]]
+            for v, tail in zip(row, parts[1:]):
+                if v is None:
+                    out.append("NULL")
+                else:
+                    out.append("?")
+                    params.append(v)
+                out.append(tail)
+            selects.append("".join(out))
+        stmts.append((head + " UNION ALL ".join(selects), tuple(params) or None))
+    return stmts
+
+
 def _variant(v: Any) -> Any:
     """VARIANT/ARRAY cells come back from the connector as JSON text."""
     if isinstance(v, (str, bytes)):
@@ -227,6 +264,74 @@ def _case(row: dict[str, Any]) -> Case:
 
 def _citation_from_dict(d: dict[str, Any]) -> Citation:
     return Citation(kind=CitationKind(d["kind"]), ref=d["ref"], page=d.get("page"), snippet=d.get("snippet"))
+
+
+# ---- row-tuple builders shared by the single-row methods and the bulk_insert_* paths (one column mapping)
+_SQL_REQUEST = (
+    "INSERT INTO {table} (request_id, bank_id, borrower_id, amount, currency, submitted_at, documents) "
+    "SELECT %s, %s, %s, %s, %s, TO_TIMESTAMP_NTZ(%s), PARSE_JSON(%s)"
+)
+_SQL_FIELDS = (
+    f"INSERT INTO {T_FIELDS} (request_id, bl_number, vessel, voyage, port_of_loading, port_of_discharge, commodity, "
+    "quantity, quantity_unit, value, currency, shipment_date, shipper, consignee, sources) "
+    "SELECT %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, TO_DATE(%s), %s, %s, PARSE_JSON(%s)"
+)
+_SQL_REPORT = (
+    f"INSERT INTO {T_REPORTS} (report_id, request_id, reporting_bank_id, created_at, recommended_action, sections) "
+    "SELECT %s, %s, %s, TO_TIMESTAMP_NTZ(%s), %s, PARSE_JSON(%s)"
+)
+_SQL_CASE = (
+    f"INSERT INTO {T_CASES} (case_id, request_id, report_id, status, hold_recommended, decided_by, "
+    "decided_at, reason) SELECT %s, %s, %s, %s, %s, %s, TO_TIMESTAMP_NTZ(%s), %s"
+)
+_SQL_AUDIT = (
+    f"INSERT INTO {T_AUDIT} (seq, at, actor, action, subject_id, payload, prev_hash, entry_hash) "
+    "SELECT %s, TO_TIMESTAMP_NTZ(%s), %s, %s, %s, PARSE_JSON(%s), %s, %s"
+)
+_SQL_LEDGER = (
+    f"INSERT INTO {T_LEDGER} (entry_id, bank_id, keys, qty_band, borrower_token, pledged_at) "
+    "SELECT %s, %s, PARSE_JSON(%s), %s, %s, TO_TIMESTAMP_NTZ(%s)"
+)
+
+
+def _request_row(req: FinancingRequest) -> tuple:
+    docs = [
+        {"doc_id": d.doc_id, "request_id": d.request_id, "doc_type": d.doc_type.value, "text": d.text, "pages": d.pages}
+        for d in req.documents
+    ]
+    return (req.request_id, req.bank_id, req.borrower_id, req.amount, req.currency, _ts(req.submitted_at), _json(docs))
+
+
+def _fields_row(fields: ExtractedFields) -> tuple:
+    sources = {
+        k: {"kind": c.kind.value, "ref": c.ref, "page": c.page, "snippet": c.snippet}
+        for k, c in fields.sources.items()
+    }
+    return (
+        fields.request_id, fields.bl_number, fields.vessel, fields.voyage, fields.port_of_loading,
+        fields.port_of_discharge, fields.commodity, fields.quantity, fields.quantity_unit, fields.value,
+        fields.currency, _d(fields.shipment_date), fields.shipper, fields.consignee, _json(sources),
+    )
+
+
+def _report_row(report: STRDraft) -> tuple:
+    return (report.report_id, report.request_id, report.reporting_bank_id, _ts(report.created_at),
+            report.recommended_action, _json(to_dict(report)["sections"]))
+
+
+def _case_row(case: Case) -> tuple:
+    return (case.case_id, case.request_id, case.report_id, case.status.value, case.hold_recommended,
+            case.decided_by, _ts(case.decided_at), case.reason)
+
+
+def _audit_row(record: AuditRecord) -> tuple:
+    return (record.seq, _ts(record.at), record.actor, record.action, record.subject_id,
+            _json(record.payload), record.prev_hash, record.entry_hash)
+
+
+def _entry_row(entry: ConsortiumEntry) -> tuple:
+    return (entry.entry_id, entry.bank_id, _json(entry.keys), entry.qty_band, entry.borrower_token,
+            _ts(entry.pledged_at))
 
 
 class SnowflakeStore:
@@ -368,6 +473,13 @@ class SnowflakeStore:
         )
         return self._query(f"{union} ORDER BY txn_date, txn_id", [company_id] * len(BANKS))
 
+    def all_transactions(self) -> list[dict[str, Any]]:
+        """Every bank's transactions, one SELECT per bank schema (batch mode: sql/11)."""
+        out: list[dict[str, Any]] = []
+        for b in BANKS:
+            out += self._query(f"SELECT {_TXN_COLS} FROM {_bank_schema(b)}.TRANSACTIONS")
+        return out
+
     def policy_clauses(self, tags: list[str] | None = None) -> list[dict[str, Any]]:
         cols = "clause_id, section, title, text, tags"
         if not tags:
@@ -384,10 +496,6 @@ class SnowflakeStore:
     # ------------------------------------------------------------------ workflow
     def save_request(self, req: FinancingRequest) -> None:
         table = f"{_bank_schema(req.bank_id)}.REQUESTS"
-        docs = [
-            {"doc_id": d.doc_id, "request_id": d.request_id, "doc_type": d.doc_type.value, "text": d.text, "pages": d.pages}
-            for d in req.documents
-        ]
         self._exec(
             f"MERGE INTO {table} t USING (SELECT %s AS request_id, %s AS bank_id, %s AS borrower_id, "
             "%s AS amount, %s AS currency, TO_TIMESTAMP_NTZ(%s) AS submitted_at, PARSE_JSON(%s) AS documents) s "
@@ -396,7 +504,7 @@ class SnowflakeStore:
             "currency = s.currency, submitted_at = s.submitted_at, documents = s.documents "
             "WHEN NOT MATCHED THEN INSERT (request_id, bank_id, borrower_id, amount, currency, submitted_at, documents) "
             "VALUES (s.request_id, s.bank_id, s.borrower_id, s.amount, s.currency, s.submitted_at, s.documents)",
-            (req.request_id, req.bank_id, req.borrower_id, req.amount, req.currency, _ts(req.submitted_at), _json(docs)),
+            _request_row(req),
         )
 
     def get_request(self, request_id: str) -> FinancingRequest | None:
@@ -428,10 +536,6 @@ class SnowflakeStore:
         )
 
     def save_fields(self, fields: ExtractedFields) -> None:
-        sources = {
-            k: {"kind": c.kind.value, "ref": c.ref, "page": c.page, "snippet": c.snippet}
-            for k, c in fields.sources.items()
-        }
         self._exec(
             f"MERGE INTO {T_FIELDS} t USING (SELECT %s AS request_id, %s AS bl_number, %s AS vessel, %s AS voyage, "
             "%s AS port_of_loading, %s AS port_of_discharge, %s AS commodity, %s AS quantity, %s AS quantity_unit, "
@@ -446,11 +550,7 @@ class SnowflakeStore:
             "VALUES (s.request_id, s.bl_number, s.vessel, s.voyage, s.port_of_loading, s.port_of_discharge, "
             "s.commodity, s.quantity, s.quantity_unit, s.value, s.currency, s.shipment_date, s.shipper, s.consignee, "
             "s.sources)",
-            (
-                fields.request_id, fields.bl_number, fields.vessel, fields.voyage, fields.port_of_loading,
-                fields.port_of_discharge, fields.commodity, fields.quantity, fields.quantity_unit, fields.value,
-                fields.currency, _d(fields.shipment_date), fields.shipper, fields.consignee, _json(sources),
-            ),
+            _fields_row(fields),
         )
 
     def get_fields(self, request_id: str) -> ExtractedFields | None:
@@ -467,7 +567,6 @@ class SnowflakeStore:
         return ExtractedFields(sources=src, **row)
 
     def save_report(self, report: STRDraft) -> None:
-        sections = to_dict(report)["sections"]
         self._exec(
             f"MERGE INTO {T_REPORTS} t USING (SELECT %s AS report_id, %s AS request_id, %s AS reporting_bank_id, "
             "TO_TIMESTAMP_NTZ(%s) AS created_at, %s AS recommended_action, PARSE_JSON(%s) AS sections) s "
@@ -477,8 +576,7 @@ class SnowflakeStore:
             "WHEN NOT MATCHED THEN INSERT (report_id, request_id, reporting_bank_id, created_at, recommended_action, "
             "sections) VALUES (s.report_id, s.request_id, s.reporting_bank_id, s.created_at, s.recommended_action, "
             "s.sections)",
-            (report.report_id, report.request_id, report.reporting_bank_id, _ts(report.created_at),
-             report.recommended_action, _json(sections)),
+            _report_row(report),
         )
 
     def get_report(self, report_id: str) -> STRDraft | None:
@@ -519,12 +617,7 @@ class SnowflakeStore:
             raise PermissionError(
                 f"case {case.case_id} cannot be modified directly on Snowflake; "
                 "use CALL SURAKSHA.CORE.DECIDE_CASE(case_id, decision, officer, reason)")
-        self._exec(
-            f"INSERT INTO {T_CASES} (case_id, request_id, report_id, status, hold_recommended, decided_by, "
-            "decided_at, reason) SELECT %s, %s, %s, %s, %s, %s, TO_TIMESTAMP_NTZ(%s), %s",
-            (case.case_id, case.request_id, case.report_id, case.status.value, case.hold_recommended,
-             case.decided_by, _ts(case.decided_at), case.reason),
-        )
+        self._exec(_SQL_CASE, _case_row(case))
 
     def get_case(self, case_id: str) -> Case | None:
         row = self._one(f"SELECT {_CASE_COLS} FROM {T_CASES} WHERE case_id = %s", (case_id,))
@@ -543,12 +636,7 @@ class SnowflakeStore:
     def append_audit_unchecked(self, record: AuditRecord) -> None:
         """Insert without re-reading the last row. Only for a caller that tracks seq itself
         (RegistryCachedStore, single writer)."""
-        self._exec(
-            f"INSERT INTO {T_AUDIT} (seq, at, actor, action, subject_id, payload, prev_hash, entry_hash) "
-            "SELECT %s, TO_TIMESTAMP_NTZ(%s), %s, %s, %s, PARSE_JSON(%s), %s, %s",
-            (record.seq, _ts(record.at), record.actor, record.action, record.subject_id,
-             _json(record.payload), record.prev_hash, record.entry_hash),
-        )
+        self._exec(_SQL_AUDIT, _audit_row(record))
 
     @staticmethod
     def _audit(row: dict[str, Any]) -> AuditRecord:
@@ -573,6 +661,57 @@ class SnowflakeStore:
     def last_audit(self) -> AuditRecord | None:
         row = self._one(f"SELECT {_AUDIT_COLS} FROM {T_AUDIT} ORDER BY seq DESC LIMIT 1")
         return self._audit(row) if row else None
+
+    # ------------------------------------------------------------------ bulk inserts (fresh rows only; batch mode)
+    def bulk_exec(self, sql: str, rows: list[tuple], chunk: int = 200) -> int:
+        """Run `INSERT ... SELECT <%s exprs>` for many rows as ceil(N/chunk) statements. Returns statements issued.
+        Plain INSERTs, never MERGE: callers guarantee the rows are new."""
+        if not rows:
+            return 0
+        stmts = batch_select_insert(sql, [tuple(r) for r in rows], chunk)
+        if stmts is None:
+            raise ValueError("bulk_exec needs an INSERT ... SELECT statement")
+        cur = self._conn.cursor()
+        try:
+            for s, p in stmts:
+                if not self._qmark:
+                    s = s.replace("?", "%s")
+                cur.execute(s, p) if p else cur.execute(s)
+        finally:
+            cur.close()
+        log.info("bulk_insert", extra={"ctx": {"sql": sql.split("(", 1)[0][:60], "rows": len(rows), "stmts": len(stmts)}})
+        return len(stmts)
+
+    def bulk_insert_requests(self, reqs: list[FinancingRequest], chunk: int = 50) -> int:
+        unknown = {r.bank_id for r in reqs} - set(BANKS)
+        if unknown:
+            raise ValueError(f"unknown bank_id(s) {sorted(unknown)}; expected one of {BANKS}")
+        n = 0
+        for bank in BANKS:  # one table per bank schema; documents carry full text, so smaller chunks
+            rows = [_request_row(r) for r in reqs if r.bank_id == bank]
+            n += self.bulk_exec(_SQL_REQUEST.format(table=f"{_bank_schema(bank)}.REQUESTS"), rows, chunk)
+        return n
+
+    def bulk_insert_fields(self, items: list[ExtractedFields], chunk: int = 100) -> int:
+        return self.bulk_exec(_SQL_FIELDS, [_fields_row(f) for f in items], chunk)
+
+    def bulk_insert_ledger(self, entries: list[ConsortiumEntry], chunk: int = 200) -> int:
+        """Direct INSERT into CONSORTIUM.LEDGER. Only the table owner (SURAKSHA_ADMIN, via the batch proc's
+        owner's rights) may do this; live intake keeps going through the per-bank SP_PLEDGE_* procedures."""
+        for e in entries:
+            if e.bank_id not in BANKS:
+                raise ValueError(f"unknown bank_id {e.bank_id!r}; expected one of {BANKS}")
+        return self.bulk_exec(_SQL_LEDGER, [_entry_row(e) for e in entries], chunk)
+
+    def bulk_insert_reports(self, reports: list[STRDraft], chunk: int = 50) -> int:
+        return self.bulk_exec(_SQL_REPORT, [_report_row(r) for r in reports], chunk)
+
+    def bulk_insert_cases(self, cases: list[Case], chunk: int = 200) -> int:
+        return self.bulk_exec(_SQL_CASE, [_case_row(c) for c in cases], chunk)
+
+    def bulk_insert_audit(self, records: list[AuditRecord], chunk: int = 200) -> int:
+        """Append already-chained records (caller guarantees contiguity with last_audit())."""
+        return self.bulk_exec(_SQL_AUDIT, [_audit_row(r) for r in records], chunk)
 
     # ------------------------------------------------------------------ bulk registry load
     def load_registry(

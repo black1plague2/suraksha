@@ -59,7 +59,8 @@ def split_statements(text: str) -> list[str]:
 
 def test_expected_files_present():
     names = {p.name for p in SQL_FILES}
-    for n in ("06_git_repo.sql", "07_load_synth_proc.sql", "08_run_pipeline_proc.sql", "09_streamlit.sql"):
+    for n in ("06_git_repo.sql", "07_load_synth_proc.sql", "08_run_pipeline_proc.sql", "09_streamlit.sql",
+              "11_run_pipeline_batch.sql"):
         assert n in names
 
 
@@ -95,7 +96,7 @@ def test_06_deploy_order_and_files_exist():
     raw = (SQL_DIR / "06_git_repo.sql").read_text(encoding="utf-8")
     text = chr(10).join(l for l in raw.splitlines() if not l.lstrip().startswith("--"))
     refs = re.findall(r"EXECUTE IMMEDIATE FROM @SURAKSHA\.CORE\.SURAKSHA_REPO/branches/main/(sql/[\w.]+\.sql)", text)
-    assert [Path(r).name[:2] for r in refs] == ["00", "01", "02", "03", "04", "05", "07", "08", "09", "10"]
+    assert [Path(r).name[:2] for r in refs] == ["00", "01", "02", "03", "04", "05", "07", "08", "09", "10", "11"]
     for r in refs:
         assert (ROOT / r).is_file(), r
 
@@ -199,3 +200,42 @@ def test_10_decide_case_hash_matches_approval_py():
     for bad in ("", "  ", "system:bot", "System:x"):
         with pytest.raises(ValueError):
             ns["_officer"](bad)
+
+
+def test_11_run_pipeline_batch_static():
+    name = "11_run_pipeline_batch.sql"
+    text = (SQL_DIR / name).read_text(encoding="utf-8")
+    code = _code(name)
+    assert "CREATE OR REPLACE PROCEDURE SURAKSHA.CORE.RUN_PIPELINE_BATCH(SEED INT, RESET BOOLEAN)" in code
+    assert "EXECUTE AS OWNER" in code and "EXECUTE AS CALLER" not in code
+    assert "RUNTIME_VERSION = '3.12'" in code and 'PROC_VERSION = "iter05-batch"' in code
+    # granted to the admin role only (reset is destructive)
+    grants = re.findall(r"GRANT\s+USAGE\s+ON\s+PROCEDURE\s+SURAKSHA\.CORE\.RUN_PIPELINE_BATCH[^;]*;", code)
+    assert grants and all(g.rstrip(";").endswith("TO ROLE SURAKSHA_ADMIN") for g in grants)
+    assert "SURAKSHA_APP" not in " ".join(grants)
+    # no USE statements inside the owner's-rights body
+    body = re.findall(r"\$\$(.*?)\$\$", text, re.S)
+    assert len(body) == 1
+    compile(body[0], name, "exec")
+    assert not re.search(r"USE\s+(ROLE|DATABASE|SCHEMA|WAREHOUSE)", body[0], re.I)
+    assert re.search(r"HANDLER = 'run'", text) and "def run(session, seed, reset)" in body[0]
+    # git-first loading + module purge + qmark / inline-NULL shim, same as sql/08
+    for needle in ("SURAKSHA_REPO/branches/main/src/", 'paramstyle = "qmark"', "inline_nulls", "del sys.modules[m]",
+                   "statements=lambda: _STMTS[0]"):
+        assert needle in body[0], needle
+    # destructive statements exist only inside reset_demo_tables, which is only called under `if reset is True`
+    deletes = [m.start() for m in re.finditer(r"DELETE\s+FROM|TRUNCATE|DROP\s", body[0], re.I)]
+    fn_start = body[0].index("def reset_demo_tables")
+    fn_end = body[0].index("def run(")
+    assert len(deletes) == 1 and fn_start < deletes[0] < fn_end
+    run_src = body[0][fn_end:]
+    assert len(re.findall(r"reset_demo_tables\(", run_src)) == 1
+    assert re.search(r"if reset is True:[^\n]*\n\s+reset_demo_tables\(conn\)", run_src)
+    for t in ("BANK_A.REQUESTS", "BANK_B.REQUESTS", "BANK_C.REQUESTS", "REQUEST_FIELDS", "REPORTS", "CASES",
+              "PIPELINE_RESULTS", "INVESTIGATION_FACTS", "CONSORTIUM.LEDGER", "AUDIT_LOG"):
+        assert t in body[0], t
+    assert "REGISTRY" not in body[0] and "TRANSACTIONS" not in body[0]  # registry / txns never reset
+    for mod in re.findall(r"from (suraksha[\w.]*) import", body[0]):
+        rel = Path("src", *mod.split("."))
+        assert (ROOT / rel).with_suffix(".py").is_file() or (ROOT / rel / "__init__.py").is_file(), mod
+    assert STAGE_REF.findall(code) and all((ROOT / r).exists() for r in STAGE_REF.findall(code) if r and not r.endswith("/"))

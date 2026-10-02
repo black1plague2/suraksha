@@ -92,3 +92,17 @@ CALL SURAKSHA.CORE.RUN_PIPELINE(42);      -- JSON: detection_rate, false_positiv
 - `GRANT READ ON GIT REPOSITORY`; `CREATE STREAMLIT ... FROM <git path>` copying the whole tree (warehouse runtime requires a bare `MAIN_FILE`, hence the root `streamlit_app.py` shim + `environment.yml`).
 - `sql/09` targets the container runtime (`RUNTIME_NAME = 'SYSTEM$ST_CONTAINER_RUNTIME_PY3_11'`, `COMPUTE_POOL = SYSTEM_COMPUTE_POOL_CPU`). Container runtime reads dependencies from `pyproject.toml` or `requirements.txt` (not `environment.yml`) and, per the docs, needs an external access integration for PyPI (`SURAKSHA_PYPI_EAI`, created in section A of the file). Warehouse-runtime variant is commented in the file as fallback.
 - `DECIDE_CASE` (`sql/10`): Snowpark `session.sql(..., params=[...])` binds, `BEGIN/COMMIT` inside an owner's-rights proc, and the `number of rows updated` result column of `UPDATE`. App-side code that MERGE-upserts CASES (`save_case`) needs UPDATE and will now fail for SURAKSHA_APP: decisions must go through `DECIDE_CASE`, and new cases must be plain INSERTs.
+
+## 6. Batch mode: `RUN_PIPELINE_BATCH` (ITER-05, sql/11)
+`RUN_PIPELINE` (sql/08) issues ~1,900 statements; at ~0.5 s per round-trip inside a procedure it exceeds 20 minutes and a bigger warehouse does not help (latency-bound). The batch proc issues ~27 statements for seed 42 (11 reads + 16 bulk INSERTs; +10 DELETEs when RESET): it bulk-reads the registry, ledger, policy clauses, transactions and audit tail, screens every request in memory with the same `Suraksha` pipeline code (audit chain continues the stored chain), then bulk-INSERTs requests, fields, ledger entries, reports, cases, audit records, `PIPELINE_RESULTS` and `INVESTIGATION_FACTS`.
+```sql
+USE ROLE SURAKSHA_ADMIN;  USE WAREHOUSE SURAKSHA_WH;
+-- after LOAD_SYNTH(42):
+CALL SURAKSHA.CORE.RUN_PIPELINE_BATCH(42, TRUE);    -- repeatable: wipes the DEMO workflow tables first
+CALL SURAKSHA.CORE.RUN_PIPELINE_BATCH(42, FALSE);   -- append only; errors "already have ledger pledges" if re-run
+```
+- Returns the `RUN_PIPELINE` JSON plus `statements_issued`, `proc_version` (`iter05-batch`) and `elapsed_s` = `{read, screen, write}`.
+- **Trust model.** `EXECUTE AS OWNER` (SURAKSHA_ADMIN owns the ledger). It inserts ledger rows directly instead of 173 `SP_PLEDGE_BANK_*` calls: it is the trusted batch harness simulating all three banks. Live single-request intake still goes through the per-bank procedures. Granted to SURAKSHA_ADMIN only.
+- **RESET = TRUE is destructive and demo-only**: deletes all rows of bank REQUESTS, REQUEST_FIELDS, REPORTS, CASES, PIPELINE_RESULTS, INVESTIGATION_FACTS, CONSORTIUM.LEDGER and AUDIT_LOG (synthetic data; registry and transactions untouched). The append-only rules bind the app role, not the owner; the reset exists so the demo is repeatable. Never use on real data.
+- After a run the section 4 TEST queries apply unchanged (parity query, audit verify: `V_AUDIT_VERIFY_SUMMARY` checks the whole chain).
+- Verify live (owner's-rights docs list no `USE` and "no LIST in JavaScript/Scripting handlers"; Python is not listed): `LIST` + `session.file.get` for package loading, `session.connection` cursor, ~1,500-bind multi-row `INSERT ... SELECT ... UNION ALL` statements, statement-size limits on the 50-row requests chunks.

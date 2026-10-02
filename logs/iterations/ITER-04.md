@@ -58,3 +58,11 @@ DECIDE_CASE transaction + `?` binds in owner's-rights proc · container runtime 
 - Actions: (1) user runs RUN_PIPELINE once from a Snowsight worksheet (no client timeout) — the real-time per-request path;
   (2) ITER-05 batch-mode agent (Sonnet) building `sql/11` RUN_PIPELINE_BATCH: bulk read (~10 stmts) → in-memory screening →
   bulk write (~30 stmts), owner's rights, admin-only demo RESET.
+
+# ITER-05 — Batch mode for in-Snowflake runs (2026-10-02)
+- batch-mode (Sonnet): `store/batch.py` BatchSnowflakeRun (bulk read 11 SELECTs → in-memory screening with the unchanged
+  pipeline → bulk write 16 multi-row INSERTs; audit chain continues from the stored tail; re-run guard), `batch_select_insert`
+  (UNION ALL, None→NULL), shared row builders for single + bulk paths, `sql/11_run_pipeline_batch.sql`
+  `RUN_PIPELINE_BATCH(SEED, RESET)` EXECUTE AS OWNER, admin-only, demo-only reset of workflow tables.
+- Full seed-42 run: **27 statements** (was ~1,900; originally 76,703 store calls). Parity with in-memory pipeline proven.
+- **351 passed**; eval 5/5 PASS; red-team v2 unchanged.
