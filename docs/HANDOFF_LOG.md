@@ -13,6 +13,12 @@ _(agents append here; master applies and records the resolution)_
 
 ---
 
+## 2026-10-02 · ITER-05 · LIVE RUN ✅ — Snowflake results identical to local
+- `CALL RUN_PIPELINE_BATCH(42, TRUE)`: detection 100%, FPR 1.54%, 36 STRs, audit chain intact, 37 statements, ~14 s.
+- Evidence so far: PLAN, BUILD (00–05, 07–11), RUN in `docs/evidence/`. 354 tests pass.
+- NEXT: CoCo TEST prompts (rule parity SQL↔Python, DECIDE_CASE G4 refusals, UPDATE CASES denied, audit verify) → open the
+  Streamlit app → final evidence pack + README for judges.
+
 ## 2026-10-02 · ITER-04 → ITER-05 · LOAD_SYNTH live ✅, RUN_PIPELINE too slow inside a proc
 - Live: sql/00–10 deployed; LOAD_SYNTH(42) loads 234 companies / 3908 txns (matches local). Streamlit app created (warehouse runtime).
 - RUN_PIPELINE(42) exceeds CoCo's 20-min call limit (~1,900 statements, latency-bound). User running it from a worksheet.

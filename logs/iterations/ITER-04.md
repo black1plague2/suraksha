@@ -72,3 +72,6 @@ DECIDE_CASE transaction + `?` binds in owner's-rights proc · container runtime 
 - Fix (master): every proc's `ensure_pkg` now (a) checks REQUIRED_MODULES per proc and skips a stale source, (b) clears /tmp
   before download, (c) raises with every source's error if none is current; `07` and `11` REMOVE + COPY FILES refresh
   `@CORE.CODE` on each deploy. PROC_VERSIONs → `iter05-pkgcheck` / `iter05-batch-pkgcheck`. +3 tests; **354 passed.**
+- **LIVE SUCCESS:** `RUN_PIPELINE_BATCH(42, TRUE)` → detection 1.0 (43/43), FPR 0.0154 (2/130), 128/36/9, 36 STRs, audit intact,
+  37 statements, 14.3 s — identical to local. `package_from: @CORE.CODE (25 files)`: owner's-rights procs can't LIST the git stage;
+  refreshed fallback works. Evidence: `docs/evidence/RUN_coco_batch.md`.
