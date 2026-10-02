@@ -13,6 +13,12 @@ _(agents append here; master applies and records the resolution)_
 
 ---
 
+## 2026-10-02 · ITER-04 → ITER-05 · LOAD_SYNTH live ✅, RUN_PIPELINE too slow inside a proc
+- Live: sql/00–10 deployed; LOAD_SYNTH(42) loads 234 companies / 3908 txns (matches local). Streamlit app created (warehouse runtime).
+- RUN_PIPELINE(42) exceeds CoCo's 20-min call limit (~1,900 statements, latency-bound). User running it from a worksheet.
+- In progress: batch-mode agent → `sql/11_run_pipeline_batch.sql` (target ~50 statements). Then RUN + TEST prompts (in chat history /
+  SNOWSIGHT_RUNBOOK) for CoCo evidence, then final evidence pack.
+
 ## 2026-10-01 · ITER-04 · CoCo PLAN done, BUILD 00–05 live ✅, fixes pushed for 07–10
 - Evidence: `docs/evidence/PLAN_coco_review.md`, `docs/evidence/BUILD_coco_00-05.md`. 336 tests pass.
 - NEXT: user FETCHes, CoCo runs sql/07, 08, 09, 10 → then RUN (`CALL LOAD_SYNTH(42)`, `CALL RUN_PIPELINE(42)`, open app) → TEST.

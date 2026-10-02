@@ -53,3 +53,8 @@ DECIDE_CASE transaction + `?` binds in owner's-rights proc · container runtime 
   snapshot in 5 SELECTs (`SnowflakeStore.snapshot_registry`), single-writer audit cache (`append_audit_unchecked`). Wired into
   RUN_PIPELINE (`proc_version: iter04-registry-cache`) and the SiS app. Snowflake-bound calls: **76,703 → 1,863**. Identical
   results proven by `tests/unit/test_cached_store.py`. **342 passed.**
+- CoCo re-ran 07/08 and **LOAD_SYNTH succeeded again** (24 files from git). `CALL RUN_PIPELINE(42)` hit CoCo's ~20-min tool
+  timeout twice: ~1,900 statements × ~0.5 s round-trip inside a proc; latency-bound, so a bigger warehouse won't help.
+- Actions: (1) user runs RUN_PIPELINE once from a Snowsight worksheet (no client timeout) — the real-time per-request path;
+  (2) ITER-05 batch-mode agent (Sonnet) building `sql/11` RUN_PIPELINE_BATCH: bulk read (~10 stmts) → in-memory screening →
+  bulk write (~30 stmts), owner's rights, admin-only demo RESET.
