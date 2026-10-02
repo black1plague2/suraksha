@@ -13,6 +13,14 @@ _(agents append here; master applies and records the resolution)_
 
 ---
 
+## 2026-10-02 · ITER-06 · Improvement wave 1 (IN PROGRESS) — deadline ~1 day
+- Triage of external suggestions done (kept: Snowflake-native + explainable; rejected: ML/GNN scoring, external APIs (trial has no
+  egress), auto-tuned weights, TTL caching of no-match, cross-bank embeddings, HE/MPC, Docker/CLI — reasons in chat/ITER-06 log).
+- Agents running: new-rules (Sonnet: R_NO_VESSEL_CALL phantom cargo + R_DOC_MISMATCH, SQL mirror; master must apply its pipeline.py diff),
+  streaming (Sonnet: REQUEST_INBOX + Stream + Task + SCREEN_INBOX, sql/12), whatif-ui (Sonnet: what-if simulator, evidence chain, risk metrics),
+  report-templates (Sonnet: UAE goAML STR mapping), docs-positioning (Haiku: THREAT_MODEL.md, PITCH.md).
+- CoCo itself builds monitoring (user pastes its SQL back → commit as sql/13, credited to CoCo).
+
 ## 2026-10-02 · ITER-05 · COMPLETE — PLAN/BUILD/RUN/TEST all done live with CoCo ✅
 - TEST run 2: 9/9 PASS (parity 0/45, G4 refusals, UPDATE/DELETE denied with secondary roles NONE, audit 567 rows intact).
 - README rewritten for judges; evidence in `docs/evidence/`; close-out in `logs/iterations/ITER-05.md` (open items listed there).
