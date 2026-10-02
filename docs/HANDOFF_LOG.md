@@ -13,6 +13,12 @@ _(agents append here; master applies and records the resolution)_
 
 ---
 
+## 2026-10-02 · ITER-05 · COMPLETE — PLAN/BUILD/RUN/TEST all done live with CoCo ✅
+- TEST run 2: 9/9 PASS (parity 0/45, G4 refusals, UPDATE/DELETE denied with secondary roles NONE, audit 567 rows intact).
+- README rewritten for judges; evidence in `docs/evidence/`; close-out in `logs/iterations/ITER-05.md` (open items listed there).
+- Demo data state: last reset + run via RUN_PIPELINE_BATCH(42, TRUE); one case (CASE-REQ-00016) approved by "Priya Nair".
+- To resume: add screenshots, walk through the SURAKSHA_APP Streamlit app in Snowsight, then pick from ITER-05 open items.
+
 ## 2026-10-02 · ITER-05 · LIVE RUN ✅ — Snowflake results identical to local
 - `CALL RUN_PIPELINE_BATCH(42, TRUE)`: detection 100%, FPR 1.54%, 36 STRs, audit chain intact, 37 statements, ~14 s.
 - Evidence so far: PLAN, BUILD (00–05, 07–11), RUN in `docs/evidence/`. 354 tests pass.
