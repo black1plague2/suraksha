@@ -20,3 +20,13 @@
 - Tests: +what-if (memory + fake Snowflake), evidence-chain steps, risk metrics; fake-session rows gained `LABEL_DUPLICATE`.
 - Assumption: Snowflake `py_rules` holds fired rule ids (JSON array) and `label_duplicate` is a BOOLEAN column of CORE.PIPELINE_RESULTS.
 
+
+## Round 4 (ITER-07 UI)
+
+- Added `app/ui.py` (palette tokens, CSS, HTML card builders, formatters, status pills) and `.streamlit/config.toml` (light theme).
+- Restyled all five pages to design v6: top bar + pill nav (`persona` radio moved from sidebar to main), stone/blue-grey
+  background, white cards, Manrope/Source Serif 4 (web fonts only in memory mode). Case page rebuilt: short h1, fact line,
+  single three-section card, Drafted report + All document details expanders, sticky decision card, Audit trail expander.
+- Behaviour unchanged: DECIDE_CASE/decide() errors verbatim in st.error, Verify audit chain button, memory + Snowflake paths.
+- Landing KPI "Detection · false positives" counts flagged (not Clear) vs ground-truth labels (matches PITCH numbers).
+- Tests: smoke tests updated for new nav (`at.radio`), labels and headings; new tests for ui helpers. Suite green (408).

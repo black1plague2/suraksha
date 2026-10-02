@@ -1,0 +1,9 @@
+# Light theme (the UI also reads fine if a viewer forces dark in Settings). Colours mirror PALETTE in app/ui.py.
+# Streamlit-in-Snowflake reads theme options from .streamlit/config.toml in the app root (upload it with the app).
+[theme]
+base = "light"
+primaryColor = "#24375E"
+backgroundColor = "#EEF1F5"
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#1C2030"
+font = "sans serif"

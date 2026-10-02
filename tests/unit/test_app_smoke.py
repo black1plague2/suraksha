@@ -15,13 +15,13 @@ PAGES = ["Trade-ops analyst", "Investigator", "Compliance officer (MLRO)", "Risk
 def test_page_renders(page):
     at = AppTest.from_file(APP, default_timeout=120).run()
     assert not at.exception, at.exception
-    at.sidebar.radio(key="persona").set_value(page).run()
+    at.radio(key="persona").set_value(page).run()
     assert not at.exception, at.exception
 
 
 def test_investigator_question():
     at = AppTest.from_file(APP, default_timeout=120).run()
-    at.sidebar.radio(key="persona").set_value("Investigator").run()
+    at.radio(key="persona").set_value("Investigator").run()
     at.text_input(key="inv_q").set_value("directors of C0001").run()
     assert not at.exception, at.exception
 
@@ -34,7 +34,7 @@ def test_whatif_defaults_match_pipeline_and_flips_on_threshold():
     from suraksha.config import RULE_WEIGHTS
 
     at = AppTest.from_file(APP, default_timeout=120).run()
-    at.sidebar.radio(key="persona").set_value("Policy what-if").run()
+    at.radio(key="persona").set_value("Policy what-if").run()
     assert not at.exception, at.exception
     assert len(at.slider) >= 1 + len(RULE_WEIGHTS)  # threshold + one per rule (incl. any new rules)
     assert _metric(at, "Detection rate").delta.startswith("+0.0")  # defaults == current policy
@@ -49,17 +49,20 @@ def test_whatif_defaults_match_pipeline_and_flips_on_threshold():
 
 def test_mlro_evidence_chain_steps():
     at = AppTest.from_file(APP, default_timeout=120).run()
-    at.sidebar.radio(key="persona").set_value("Compliance officer (MLRO)").run()
+    at.radio(key="persona").set_value("Compliance officer (MLRO)").run()
     assert not at.exception, at.exception
     labels = [e.label for e in at.expander]
-    for n in ("1 ·", "2 ·", "3 ·", "4 ·", "5 ·"):
-        assert any(l.startswith(n) for l in labels), labels
-    assert any("Decision & audit trail" in m.value for m in at.markdown)
+    assert any("Drafted report" in l for l in labels), labels
+    assert any(l == "Audit trail" for l in labels), labels
+    assert any("document details" in l for l in labels), labels
+    md = " ".join(m.value for m in at.markdown)
+    for heading in ("Two banks, one cargo", "Score", "Decision"):
+        assert heading in md, heading
 
 
 def test_risk_head_operational_metrics():
     at = AppTest.from_file(APP, default_timeout=120).run()
-    at.sidebar.radio(key="persona").set_value("Risk head").run()
+    at.radio(key="persona").set_value("Risk head").run()
     assert not at.exception, at.exception
     assert any(m.label.startswith("Median time") for m in at.metric)
     assert any(m.label.startswith("Analyst queue") for m in at.metric)
@@ -67,7 +70,7 @@ def test_risk_head_operational_metrics():
 
 def test_mlro_has_verify_button():
     at = AppTest.from_file(APP, default_timeout=120).run()
-    at.sidebar.radio(key="persona").set_value("Compliance officer (MLRO)").run()
+    at.radio(key="persona").set_value("Compliance officer (MLRO)").run()
     assert not at.exception, at.exception
     assert any("Verify" in b.label for b in at.button)
 
@@ -171,14 +174,15 @@ def fake_snowflake(monkeypatch):
 
 
 def _sidebar_text(at):
-    return " ".join(c.value for c in at.sidebar.caption)
+    """Backend badge text from the top bar (the sidebar is no longer used)."""
+    return " ".join(m.value for m in at.markdown)
 
 
 def test_snowflake_backend_detected_empty_results(fake_snowflake):
     fake_snowflake(_FakeSession(_routes(results=False)))
     at = AppTest.from_file(APP, default_timeout=120).run()
     assert not at.exception, at.exception
-    assert "Backend: snowflake" in _sidebar_text(at)
+    assert "Snowflake live" in _sidebar_text(at)
     assert any("RUN_PIPELINE(42)" in i.value for i in at.info)
 
 
@@ -187,15 +191,15 @@ def test_snowflake_pages_render(fake_snowflake, page):
     fake_snowflake(_FakeSession(_routes(results=True)))
     at = AppTest.from_file(APP, default_timeout=120).run()
     assert not at.exception, at.exception
-    at.sidebar.radio(key="persona").set_value(page).run()
+    at.radio(key="persona").set_value(page).run()
     assert not at.exception, at.exception
-    assert "Backend: snowflake" in _sidebar_text(at)
+    assert "Snowflake live" in _sidebar_text(at)
 
 
 def test_snowflake_whatif_uses_label_column(fake_snowflake):
     fake_snowflake(_FakeSession(_routes(results=True)))
     at = AppTest.from_file(APP, default_timeout=120).run()
-    at.sidebar.radio(key="persona").set_value("Policy what-if").run()
+    at.radio(key="persona").set_value("Policy what-if").run()
     assert not at.exception, at.exception
     # R1 = labelled duplicate fired R_EXACT_HASH (0.5 < 0.6 threshold) -> LOW at defaults; R2 clean
     assert _metric(at, "Detection rate").value == "0.0%"
@@ -208,14 +212,14 @@ def test_snowflake_verify_and_decide(fake_snowflake):
     session = _FakeSession(_routes(results=True))
     fake_snowflake(session)
     at = AppTest.from_file(APP, default_timeout=120).run()
-    at.sidebar.radio(key="persona").set_value("Compliance officer (MLRO)").run()
+    at.radio(key="persona").set_value("Compliance officer (MLRO)").run()
     assert not at.exception, at.exception
     next(b for b in at.button if "Verify" in b.label).click().run()
     assert not at.exception, at.exception
     assert any("Audit chain intact" in s.value for s in at.success), [s.value for s in at.success]
     # approve routes through DECIDE_CASE, never the in-memory engine
     at.text_input(key="officer_CASE-R1").set_value("A. Officer")
-    next(b for b in at.button if "Approve" in b.label).click().run()
+    next(b for b in at.button if "File report" in b.label).click().run()
     assert not at.exception, at.exception
     calls = [c for c in session.connection.calls if "DECIDE_CASE" in c[0]]
     assert calls and calls[0][1] == ("CASE-R1", "APPROVE", "A. Officer", "")
@@ -227,8 +231,61 @@ def test_snowflake_decide_error_shown_verbatim(fake_snowflake):
 
     fake_snowflake(_FakeSession(_routes(results=True, decide=refuse)))
     at = AppTest.from_file(APP, default_timeout=120).run()
-    at.sidebar.radio(key="persona").set_value("Compliance officer (MLRO)").run()
+    at.radio(key="persona").set_value("Compliance officer (MLRO)").run()
     at.text_input(key="officer_CASE-R1").set_value("system:pipeline")
-    next(b for b in at.button if "Approve" in b.label).click().run()
+    next(b for b in at.button if "File report" in b.label).click().run()
     assert not at.exception, at.exception
     assert any("system actors may not decide cases" in e.value for e in at.error)
+
+
+# ------------------------------------------------------------------ ui helpers (app/ui.py)
+def _ui():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("sk_ui", Path(APP).parent / "ui.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_ui_formatters_and_pills():
+    ui = _ui()
+    assert ui.fmt_money(3808600, "USD") == "USD 3,808,600"
+    assert ui.fmt_money(None, "USD") == "-"
+    assert ui.fmt_compact(3808600, "USD") == "USD 3.8M"
+    assert ui.status_label("HOLD-for-evidence") == "Needs evidence"
+    assert ui.status_label("PENDING_APPROVAL") == "Waiting for review"
+    assert "bad" in ui.status_pill("PENDING_APPROVAL") and "ok" in ui.status_pill("CLEAR")
+    assert "Pending MLRO sign-off" in ui.status_pill("PENDING_APPROVAL", pending_label="Pending MLRO sign-off")
+    assert ui.bank_label("BANK_A") == "Bank A"
+
+
+def test_ui_html_is_escaped_and_score_bar_marks_threshold():
+    ui = _ui()
+    t = ui.html_table(["A"], [["<script>x</script>"]], mono={0})
+    assert "<script>" not in t and "&lt;script&gt;" in t
+    bar = ui.score_bar(0.95, 0.60)
+    assert "left:60.0%" in bar and "width:95.0%" in bar and "var(--coral-bar)" in bar
+    assert "--amber-bar" in ui.score_bar(0.3, 0.6)
+
+
+def test_ui_style_status_falls_back_to_frame():
+    import pandas as pd
+
+    ui = _ui()
+    df = pd.DataFrame({"Status": ["Clear", "Pending approval"]})
+    assert ui.style_status(df, "Status") is not None
+    assert ui.status_cell_css("Clear") and ui.status_cell_css("nope") == ""
+
+
+def test_analyst_kpis_and_examples_render():
+    at = AppTest.from_file(APP, default_timeout=120).run()
+    labels = [m.label for m in at.metric]
+    for want in ("Requests screened", "Flagged", "Pending approval", "Exposure held"):
+        assert want in labels, labels
+    at.radio(key="persona").set_value("Investigator").run()
+    assert not at.exception, at.exception
+    assert any(b.label.startswith("Who else is linked to") for b in at.button)
+    next(b for b in at.button if b.label.startswith("Who else is linked to")).click().run()
+    assert not at.exception, at.exception
+    assert at.text_input(key="inv_q").value.startswith("Who else is linked to")

@@ -13,6 +13,12 @@ _(agents append here; master applies and records the resolution)_
 
 ---
 
+## 2026-10-02 · ITER-07 · New app look (calm, plain-language) — built + checked locally
+- Design approved by user: https://claude.ai/artifact/8hKwGvahNNJLUEx9MSwfAC (Source Serif 4 + Manrope, "Midnight & apricot" on cool mist #EEF1F5, short headings, data only).
+- App rebuilt to match (app/ui.py tokens/CSS, .streamlit/config.toml). Master fixes after browser check: headline the STRONGEST ownership link (owner > ownership > director > shareholder > address > phone), "capped from" score total, calm casing of document text, exposure KPI per currency, nav/brand/chain layout.
+- All pages load locally with no errors. Commit history rewritten to plain language (backup bundle kept in the session scratchpad).
+- NEXT (user): in Snowsight run `ALTER GIT REPOSITORY SURAKSHA.CORE.SURAKSHA_REPO FETCH;` then `EXECUTE IMMEDIATE FROM @SURAKSHA.CORE.SURAKSHA_REPO/branches/main/sql/09_streamlit.sql;` and check the app in Snowflake (SiS Streamlit version may differ — check nav pills/sticky card). Then screenshots into docs/evidence, rehearse docs/PITCH.md, suspend SCREEN_INBOX_TASK after judging.
+
 ## 2026-10-02 · ITER-06 · Wave 1 built locally ✅ (404 tests, 100%/1.5%) — live deploy next — see logs/iterations/ITER-06.md
 - Triage of external suggestions done (kept: Snowflake-native + explainable; rejected: ML/GNN scoring, external APIs (trial has no
   egress), auto-tuned weights, TTL caching of no-match, cross-bank embeddings, HE/MPC, Docker/CLI — reasons in chat/ITER-06 log).

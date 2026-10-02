@@ -16,3 +16,13 @@ New in round 3:
 - **Policy what-if** (Risk head / MLRO): sliders for the confidence threshold and every rule weight (rule list read dynamically from `config.RULE_WEIGHTS`, plus any extra rule ids seen in the results). Scores are recomputed vectorised from each request's fired rules (memory: `PipelineResult.confidence.evidence` + `SynthDataset.labels`; Snowflake: `PIPELINE_RESULTS.py_rules` + `label_duplicate`). Shows detection rate, FPR, confusion matrix, delta vs current policy, requests that flip band, and per-rule marginal value. Positive = HIGH band. Simulation only - changing live policy requires governed approval.
 - **Evidence chain** on the MLRO page: Documents -> Consortium match (hash prefixes) -> Ownership path (graphviz) -> Rules fired (weights, sum, threshold) -> STR (jurisdiction selector from `suraksha.agents.report_templates` when present) -> Decision & audit trail. Snowflake mode shows documents, fired rules, match facts from `CORE.INVESTIGATION_FACTS` (if readable) and the STR; the ownership graph is memory-mode only.
 - **Risk head**: exposure held (PENDING_APPROVAL + FILED, by currency), median request-to-drafted-finding time (audit `REQUEST_RECEIVED` -> `CASE_OPENED`), analyst queue size.
+
+## UI (ITER-07)
+
+- Theme and components live in `app/ui.py` (one `PALETTES` dict, `PALETTE = "Midnight & apricot"`; change that line to
+  switch to "Forest & clay" or "Plum & sand"). `.streamlit/config.toml` mirrors the accent/background for native widgets.
+- Navigation is a pill radio in the top bar (key `persona`, values unchanged); the sidebar is hidden and unused.
+- Case page: short h1, one grey fact line, one white card (two banks / link / score), drafted-report and
+  document-details expanders, sticky decision card, audit trail in an expander. Pages carry titles, labels and data only.
+- Fonts: Manrope + Source Serif 4 are loaded from Google Fonts only in memory mode; Streamlit-in-Snowflake uses the
+  system fallback stacks. `app/ui.py` must be uploaded next to `streamlit_app.py` (and `.streamlit/config.toml` at the app root).

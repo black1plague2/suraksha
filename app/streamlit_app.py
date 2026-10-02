@@ -28,6 +28,11 @@ _SRC = Path(__file__).resolve().parents[1] / "src"
 if _SRC.is_dir() and str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
+_APP = Path(__file__).resolve().parent  # app/ui.py lives beside this file (root SiS shim runs us via runpy)
+if str(_APP) not in sys.path:
+    sys.path.insert(0, str(_APP))
+
+import ui  # noqa: E402  (theme CSS, status pills, formatters)
 from suraksha.agents import linkage  # noqa: E402
 from suraksha.agents.approval import AuditLog  # noqa: E402
 from suraksha.agents.investigator import describe_edge  # noqa: E402
@@ -308,6 +313,12 @@ def fields_table(f) -> pd.DataFrame:
     return pd.DataFrame(out, columns=["field", "value", "source", "snippet"])
 
 
+# dark text on pale nodes + mid-grey edges: legible on both light and dark Streamlit themes
+_DOT_HEAD = ('digraph G { rankdir=LR; bgcolor="transparent"; node [shape=box, style="rounded,filled", '
+             'fillcolor="#E3F1EF", color="#0F766E", fontcolor="#12343B", fontname="Helvetica", fontsize=11]; '
+             'edge [color="#7A8B99"];')
+
+
 def draw_path(store, path) -> None:
     """Ownership path as node -> (relation) -> node graphviz diagram."""
     def label(node: str) -> str:
@@ -316,9 +327,7 @@ def draw_path(store, path) -> None:
             return f"{(store.get_company(ident) or {}).get('name', ident)}\\n{ident}"
         return node
 
-    dot = ['digraph G { rankdir=LR; node [shape=box, style="rounded,filled", fillcolor="#EEF2FF", '
-           'color="#4F46E5", fontname="Helvetica", fontsize=11]; edge [color="#64748B", fontname="Helvetica", '
-           'fontsize=9];']
+    dot = [_DOT_HEAD.replace("edge [color=\"#7A8B99\"]", 'edge [color="#7A8B99", fontcolor="#7A8B99", fontsize=9]')]
     ids: dict[str, str] = {}
     for e in path.edges:
         for n in (e.src, e.dst):
@@ -334,8 +343,7 @@ def draw_chain(edges_text: list[str]) -> None:
     """Render describe_edge() strings as a left-to-right node chain (graphviz)."""
     if not edges_text:
         return
-    dot = ['digraph G { rankdir=LR; node [shape=box, style="rounded,filled", fillcolor="#EEF2FF", '
-           'color="#4F46E5", fontname="Helvetica", fontsize=11]; edge [color="#64748B"];']
+    dot = [_DOT_HEAD]
     for i, t in enumerate(edges_text):
         t = t.replace('"', "'")
         dot.append(f'n{i} [label="{t}"];')
@@ -345,42 +353,89 @@ def draw_chain(edges_text: list[str]) -> None:
     st.graphviz_chart("\n".join(dot))
 
 
-CSS = """
-<style>
-.block-container {padding-top: 1.6rem;}
-.sk-banner {background:#FFF7E6;border:1px solid #F5C469;color:#7A4B00;padding:.45rem .8rem;
-  border-radius:8px;font-size:.85rem;margin-bottom:1rem;}
-.sk-title {font-size:1.6rem;font-weight:700;margin:0;}
-.sk-sub {color:#64748B;margin:0 0 1rem 0;}
-</style>
-"""
+NAV_LABEL = {PAGES[0]: "Requests", PAGES[1]: "Investigate", PAGES[2]: "Cases", PAGES[3]: "Overview", PAGES[4]: "What if"}
+PAGE_PURPOSE = {
+    PAGES[0]: "Every new financing request, checked against cargo already pledged at other banks.",
+    PAGES[1]: "Ask who is linked to whom, in plain English.",
+    PAGES[2]: "Review each flagged case and decide as a named person.",
+    PAGES[3]: "Money held and queue health across the banks.",
+    PAGES[4]: "See what a different threshold or rule weight would change. Simulation only.",
+}
 
 
-def header(title: str, sub: str) -> None:
-    st.markdown(f'<p class="sk-title">{title}</p><p class="sk-sub">{sub}</p>', unsafe_allow_html=True)
+def header(title: str, sub: str = "") -> None:
+    """Page title only: pages carry no explanatory intro (PAGE_PURPOSE is kept as documentation of each page)."""
+    st.markdown(ui.page_header(title, ""), unsafe_allow_html=True)
+
+
+def subhead(title: str) -> None:
+    st.markdown(ui.section(title), unsafe_allow_html=True)
+
+
+def pretty_requests(df: pd.DataFrame):
+    """Friendly, display-only table: few columns, short amounts, soft status pills."""
+    out = pd.DataFrame({
+        "Request": df["request_id"], "Borrower": df["borrower"], "Cargo": df["commodity"],
+        "Amount": [ui.fmt_compact(a, c) for a, c in zip(df["amount"], df["currency"])],
+        "Status": [ui.status_label(x) for x in df["status"]],
+    })
+    return ui.style_status(out, "Status")
+
+
+def analyst_kpis(app, df: pd.DataFrame) -> None:
+    flagged = df[df["status"] != "CLEAR"]
+    held = df[df["status"].isin(["PENDING_APPROVAL", "FILED"])].groupby("currency")["amount"].sum().sort_values(ascending=False)
+    k = st.columns(5)
+    k[0].metric("Requests screened", len(df))
+    k[1].metric("Flagged", len(flagged))
+    k[2].metric("Pending approval", int((df["status"] == "PENDING_APPROVAL").sum()))
+    if held.empty:
+        k[3].metric("Exposure held", "-")
+    else:
+        k[3].metric("Exposure held", " · ".join(ui.fmt_compact(v, c) for c, v in held.items()),
+                    help="Pending + filed cases, per currency: " + ", ".join(ui.fmt_money(v, c) for c, v in held.items()))
+    try:
+        frame, _rules, labels_ok = whatif_frame(app)
+        flagged_ids = set(df.loc[df["status"] != "CLEAR", "request_id"])
+        pred = frame["request_id"].isin(flagged_ids).to_numpy()
+        y = frame["label"].to_numpy(dtype=bool)
+        det = float((pred & y).sum()) / max(int(y.sum()), 1)
+        fpr = float((pred & ~y).sum()) / max(int((~y).sum()), 1)
+        k[4].metric("Detection · false positives", f"{det:.0%} · {fpr:.1%}" if labels_ok else "n/a",
+                    help="Flagged requests (any status but Clear) against the synthetic ground-truth labels."
+                    if labels_ok else "No ground-truth labels available.")
+    except Exception:
+        k[4].metric("Detection · false positives", "n/a")
 
 
 # --------------------------------------------------------------------------- pages
 def page_analyst(app) -> None:
-    header("Intake queue", "Every new request is checked against cargo already pledged at other banks.")
+    header("Requests", PAGE_PURPOSE[PAGES[0]])
     df = requests_df(app)
+    analyst_kpis(app, df)
+    st.write("")
     c1, c2 = st.columns(2)
     bank = c1.selectbox("Bank", ["All"] + sorted(df["bank"].unique()), key="analyst_bank")
-    stat = c2.multiselect("Status", sorted(df["status"].unique()), default=[], key="analyst_status")
+    stat = c2.multiselect("Status", sorted(df["status"].unique()), default=[], key="analyst_status",
+                          format_func=ui.status_label)
     view = df
     if bank != "All":
         view = view[view["bank"] == bank]
     if stat:
         view = view[view["status"].isin(stat)]
-    st.dataframe(view[["request_id", "bank", "borrower", "commodity", "amount", "currency", "submitted", "badge"]]
-                 .rename(columns={"badge": "status"}), use_container_width=True, hide_index=True)
     if view.empty:
-        st.info("No requests match the filter.")
+        st.info("No requests match the filter. Clear the bank or status filter to see the full queue.")
         return
+    st.dataframe(pretty_requests(view), use_container_width=True, hide_index=True)
+    subhead("Detail")
     rid = st.selectbox("Open request", list(view["request_id"]), key="analyst_pick")
     row = df[df["request_id"] == rid].iloc[0]
-    st.subheader(f"{rid}  ·  {row['badge']}")
-    st.info(plain_reason(app, rid))
+    clear = row["status"] == "CLEAR"
+    st.markdown(ui.card("", f'<p>{ui.status_pill(row["status"])} &nbsp;<span class="sk-mono">{ui.esc(rid)}</span></p>' +
+                        ui.facts([("Borrower", row["borrower"]), ("Bank", ui.bank_label(row["bank"])),
+                                  ("Amount", ui.fmt_money(row["amount"], row["currency"])),
+                                  ("Submitted", row["submitted"])]) +
+                        f'<p style="margin-top:1rem">{ui.esc(plain_reason(app, rid))}</p>'), unsafe_allow_html=True)
     if app["mode"] == "snowflake":
         res = None
         f = app["store"].get_fields(rid)
@@ -388,36 +443,54 @@ def page_analyst(app) -> None:
         res = app["results"][rid]
         f = res.fields
     if f is None:
+        st.caption("No extracted fields stored for this request.")
         return
-    st.markdown("**Extracted fields (with source)**")
-    st.dataframe(fields_table(f), use_container_width=True, hide_index=True)
+    subhead("Fields")
+    st.dataframe(fields_table(f).rename(columns={"field": "Field", "value": "Value", "source": "Source",
+                                                 "snippet": "Source line"}),
+                 use_container_width=True, hide_index=True)
     if res is None:
         r = next(x for x in app["rows"] if x["request_id"] == rid)
         if r["py_rules"]:
-            st.markdown("**Evidence (rules fired)**")
-            st.dataframe(pd.DataFrame({"rule": r["py_rules"]}), use_container_width=True, hide_index=True)
+            subhead("Evidence (rules fired)")
+            st.dataframe(pd.DataFrame({"Rule": r["py_rules"]}), use_container_width=True, hide_index=True)
         return
     if res.confidence and res.confidence.evidence:
-        st.markdown("**Evidence**")
-        st.dataframe(pd.DataFrame([{"rule": e.rule_id, "weight": e.weight, "finding": e.description}
-                                   for e in res.confidence.evidence]), use_container_width=True, hide_index=True)
+        subhead("Evidence")
+        st.dataframe(pd.DataFrame([{"Rule": e.rule_id, "Weight": e.weight, "Finding": e.description}
+                                   for e in res.confidence.evidence]), use_container_width=True, hide_index=True,
+                     **_weight_cfg())
     if res.confidence and res.confidence.missing:
         st.warning("Evidence needed before this can proceed:\n\n" + "\n".join(f"- {m}" for m in res.confidence.missing))
 
 
+def _weight_cfg() -> dict:
+    """column_config for a 0-1 'Weight' column (bar + number); {} when the Streamlit build lacks it."""
+    try:
+        return {"column_config": {"Weight": st.column_config.ProgressColumn("Weight", min_value=0.0, max_value=1.0,
+                                                                            format="%.2f")}}
+    except Exception:
+        return {}
+
+
 def page_investigator(app) -> None:
     store = app["store"]
-    header("Investigator", "Ask a plain-English question about companies, owners and links.")
+    header("Investigate", PAGE_PURPOSE[PAGES[1]])
     comps = store.list_companies()
     if len(comps) >= 2:
         a, b = comps[0]["name"], comps[1]["name"]
-        st.caption(f"Try: `Who else is linked to {a}?` · `Directors of {a}` · `Path between {a} and {b}`")
+        examples = [f"Who else is linked to {a}?", f"Directors of {a}", f"Path between {a} and {b}"]
+        for col, ex in zip(st.columns(len(examples)), examples):
+            col.button(ex, key=f"inv_ex_{examples.index(ex)}", use_container_width=True,
+                       on_click=lambda e=ex: st.session_state.__setitem__("inv_q", e))
+    else:
+        st.caption("No companies loaded yet, so there is nothing to query.")
     q = st.text_input("Question", key="inv_q", placeholder="who else is linked to <company>?")
     if q.strip():
         try:
             ans = linkage.answer(q, store)
         except Exception as exc:  # show, never crash
-            st.error(f"Could not answer: {exc}")
+            st.error(f"Could not answer: {exc}. Try one of the example questions.")
         else:
             st.success(ans["answer_text"])
             if ans["intent"] == "path":
@@ -431,18 +504,20 @@ def page_investigator(app) -> None:
                 draw_chain(r["via"])
             if ans["rows"]:
                 flat = [{k: (" | ".join(v) if isinstance(v, list) else v) for k, v in r.items()} for r in ans["rows"]]
-                st.markdown("**Rows**")
+                subhead("Rows")
                 st.dataframe(pd.DataFrame(flat), use_container_width=True, hide_index=True)
             if ans["citations"]:
-                with st.expander(f"Citations ({len(ans['citations'])})"):
+                st.markdown(ui.section(f"Sources ({len(ans['citations'])})"), unsafe_allow_html=True)
+                st.markdown(ui.citation_chips(ans["citations"]), unsafe_allow_html=True)
+                with st.expander("Citation details"):
                     st.dataframe(citation_rows(ans["citations"]), use_container_width=True, hide_index=True)
 
     st.divider()
-    st.subheader("Cases needing more evidence")
+    subhead("Needs evidence")
     if app["mode"] == "snowflake":
         weak_rows = [r for r in app["rows"] if r["pipeline_status"] is PipelineStatus.NEED_MORE_EVIDENCE]
         if not weak_rows:
-            st.caption("None.")
+            st.caption("Nothing waiting on evidence. Cases land here when a match scores below the threshold.")
         for r in weak_rows:
             score = f"{r['py_score']:.2f}" if r.get("py_score") is not None else "-"
             with st.expander(f"{r['request_id']} · score {score} ({r.get('py_band')})"):
@@ -450,7 +525,7 @@ def page_investigator(app) -> None:
         return
     weak = [(rid, r) for rid, r in app["results"].items() if r.status is PipelineStatus.NEED_MORE_EVIDENCE]
     if not weak:
-        st.caption("None.")
+        st.caption("Nothing waiting on evidence. Cases land here when a match scores below the threshold.")
     for rid, r in weak:
         conf, inv = r.confidence, r.investigation
         bank = f"{inv.match.entry.bank_id} match" if inv is not None else "document check"
@@ -497,112 +572,278 @@ def rule_rows(app, rid: str) -> tuple[list[dict], float | None, str | None]:
             conf.score, conf.band.value)
 
 
-def render_evidence_chain(app, case, draft) -> None:
-    """One ordered chain: Documents -> Consortium match -> Ownership path -> Rules -> STR."""
+RULE_PLAIN = {
+    "R_EXACT_HASH": "The very same cargo is already pledged at another bank",
+    "R_FUZZY_MATCH": "Almost the same cargo is already pledged at another bank",
+    "R_SHARED_UBO": "The two borrowers have the same ultimate owner",
+    "R_SHARED_DIRECTOR": "The two borrowers share a director",
+    "R_CORP_OWNERSHIP": "One borrower owns the other",
+    "R_SAME_ADDRESS": "Both borrowers are registered at the same address",
+    "R_SAME_PHONE": "Both borrowers use the same phone number",
+    "R_TIMING_OVERLAP": "The second loan was requested soon after the first",
+    "R_NO_VESSEL_CALL": "The ship has no recorded call at the loading port",
+    "R_DOC_MISMATCH": "The shipping papers disagree with each other",
+}
+_REL_PHRASE = {  # relation -> (walking src->dst, walking dst->src)
+    "DIRECTOR_OF": ("director of", "has director"), "SHAREHOLDER_OF": ("shareholder of", "held by"),
+    "UBO_OF": ("owner of", "owned by"), "OWNS": ("owns", "owned by"),
+    "REGISTERED_AT": ("registered at", "address of"), "HAS_PHONE": ("has phone", "phone of"),
+}
+_BOTH = {("owned by", "owner of"): "owns both", ("has director", "director of"): "director of both",
+         ("held by", "shareholder of"): "shareholder in both", ("address of", "registered at"): "same address",
+         ("phone of", "has phone"): "same phone"}
+_ACTION_PLAIN = {
+    "REQUEST_RECEIVED": "Financing request received",
+    "MATCH_FOUND": "Matching cargo found at another bank",
+    "EVIDENCE_SCORED": "Evidence scored",
+    "CASE_OPENED": "Case opened and report drafted",
+    "CASE_FILED": "Report filed, loan hold recommended",
+    "CASE_CLOSED": "Case closed with no filing",
+}
+_JURIS_PLAIN = {"Generic": "Plain", "FIU-IND": "India", "UAE-goAML": "UAE"}
+
+
+def request_info(app, rid: str) -> dict:
+    """Borrower / bank / amount / date for one request, from either backend."""
+    store = app["store"]
+    if app["mode"] == "snowflake":
+        r = next((x for x in app["rows"] if x["request_id"] == rid), {})
+        sub = r.get("submitted_at")
+        return {"borrower_id": r.get("borrower_id"), "borrower": company_name(store, r.get("borrower_id") or "?"),
+                "bank": r.get("bank_id") or "?", "amount": float(r.get("amount") or 0),
+                "currency": r.get("currency") or "", "submitted": sub.strftime("%d %b %Y") if sub is not None else "-"}
+    req = store.get_request(rid)
+    if req is None:
+        return {"borrower_id": None, "borrower": "?", "bank": "?", "amount": 0.0, "currency": "", "submitted": "-"}
+    return {"borrower_id": req.borrower_id, "borrower": company_name(store, req.borrower_id), "bank": req.bank_id,
+            "amount": req.amount, "currency": req.currency, "submitted": req.submitted_at.strftime("%d %b %Y")}
+
+
+def audit_status(app) -> tuple[bool, int]:
+    """(chain_ok, n_records). Memory: recomputed each run. Snowflake: cached per session, cleared on decisions."""
+    if app["mode"] == "snowflake":
+        cached = st.session_state.get("_audit_sf")
+        if cached is None:
+            try:
+                ok, n, breaks = audit_verify_snowflake(app["store"])
+                cached = (bool(ok and not breaks), n)
+            except Exception:
+                cached = (False, 0)
+            st.session_state["_audit_sf"] = cached
+        return cached
+    try:
+        return bool(app["engine"].audit.verify()), len(app["store"].list_audit())
+    except Exception:
+        return False, 0
+
+
+def _person_or_company(store, node: str) -> str:
+    kind, _, ident = node.partition(":")
+    if kind == "company":
+        return (store.get_company(ident) or {}).get("name", ident)
+    if kind == "person":
+        try:
+            p = store.get_person(ident)
+        except Exception:
+            p = None
+        return (p or {}).get("name") or ident
+    return f"Shared {kind} {ident}" if kind in ("phone", "address") else node
+
+
+def _walk_path(store, path):
+    """Path edges -> ([node dicts], [relation phrases]) walking from path.from_company in either edge direction."""
+    cur = f"company:{path.from_company}"
+    cards, rels = [{"label": _person_or_company(store, cur), "hot": False}], []
+    for e in path.edges:
+        fwd = e.src == cur
+        nxt = e.dst if fwd else e.src
+        phr = _REL_PHRASE.get(e.relation, (e.relation.replace("_", " ").lower(),) * 2)
+        rels.append(phr[0] if fwd else phr[1])
+        cards.append({"label": _person_or_company(store, nxt), "hot": True})
+        cur = nxt
+    cards[-1]["hot"] = False
+    if len(cards) == 3:
+        cards[1]["sub"] = _BOTH.get((rels[0], rels[1]), "")
+    return cards, rels
+
+
+def vessel_answer(app, f, fired: set[str]) -> str:
+    """Yes / No / Not in records for 'Did the ship really call there?'."""
+    if "R_NO_VESSEL_CALL" in fired:
+        return "No"
+    store = app["store"]
+    try:
+        if f is not None and f.vessel and f.voyage and store.vessel_calls(f.vessel, f.voyage):
+            return "Yes"
+    except Exception:
+        pass
+    return "Not in records"
+
+
+def render_hero(app, case) -> None:
+    """Back link, one-sentence h1, one lead paragraph, one grey meta line."""
     store, rid = app["store"], case.request_id
     res = app["results"].get(rid) if app["mode"] == "memory" else None
     inv = res.investigation if res else None
-    st.markdown("#### Evidence chain")
-    st.caption("Every step below is derived from stored data - nothing is generated at review time.")
+    f = res.fields if res else store.get_fields(rid)
+    info = request_info(app, rid)
+    rows, _score, _band = rule_rows(app, rid)
+    fired = {r["rule"] for r in rows}
+    cargo = (f.commodity if f is not None and f.commodity else "").lower()
+    if fired & {"R_EXACT_HASH", "R_FUZZY_MATCH"}:
+        h1 = f"Cargo already pledged at {ui.bank_label(inv.match.entry.bank_id)}" if inv is not None else "Cargo already pledged elsewhere"
+    elif "R_NO_VESSEL_CALL" in fired:
+        h1 = "Possible phantom cargo"
+    elif "R_DOC_MISMATCH" in fired:
+        h1 = "Documents don't agree"
+    else:
+        h1 = "Needs more evidence"
+    meta = [f"{ui.fmt_compact(info['amount'], info['currency'])} at {ui.bank_label(info['bank'])}"]
+    if f is not None:
+        if f.commodity:
+            meta.append(ui.calm(f.commodity))
+        if f.quantity is not None:
+            meta.append(f"{f.quantity:,.1f} {f.quantity_unit or ''}".strip())
+        if f.vessel:
+            meta.append(f"{ui.calm(f.vessel, vessel=True)}, voyage {f.voyage}" if f.voyage else ui.calm(f.vessel, vessel=True))
+        if f.port_of_loading and f.port_of_discharge:
+            meta.append(f"{ui.calm(f.port_of_loading)} → {ui.calm(f.port_of_discharge)}")
+    meta.append(rid)
+    st.markdown(ui.hero(h1, "") + f'<div class="sk-meta">{ui.esc(" · ".join(meta))}</div>', unsafe_allow_html=True)
 
-    with st.expander("1 · Documents - extracted fields and source lines", expanded=False):
-        f = res.fields if res else store.get_fields(rid)
-        if f is None:
-            st.caption("No extracted fields stored for this request.")
-        else:
-            st.dataframe(fields_table(f), use_container_width=True, hide_index=True)
 
-    with st.expander("2 · Consortium match - hashed fingerprints only", expanded=True):
-        if inv is not None:
-            m = inv.match
-            days = inv.timing_overlap_days
-            c = st.columns(4)
-            c[0].metric("Match type", m.match_type.value)
-            c[1].metric("Other bank", m.entry.bank_id)
-            c[2].metric("Days apart", "-" if days is None else days)
-            c[3].metric("Similarity", f"{m.similarity:.2f}")
-            st.dataframe(pd.DataFrame([{"fingerprint key": k, "matched hash (prefix)": m.entry.keys.get(k, "")[:8] + "…"}
-                                       for k in m.matched_keys]), use_container_width=True, hide_index=True)
-            st.caption("Only salted-hash prefixes are shown: no names, no amounts cross the bank boundary.")
+def render_case_card(app, case, rows) -> None:
+    """ONE white card, three hairline-separated sections."""
+    store, rid = app["store"], case.request_id
+    res = app["results"].get(rid) if app["mode"] == "memory" else None
+    inv = res.investigation if res else None
+    info = request_info(app, rid)
+    thr = float(get_settings().confidence_threshold)
+    secs = []
+
+    if inv is not None:
+        m, days = inv.match, inv.timing_overlap_days
+        other = company_name(store, inv.counterparty_company_id) if inv.counterparty_company_id else "Borrower not identified"
+        hashes = ", ".join(f"{m.entry.keys.get(k, '')[:8]}…" for k in m.matched_keys) or "-"
+        kind = "Exactly the same cargo" if m.match_type.value == "EXACT" else f"Near-identical cargo (similarity {m.similarity:.2f})"
+        secs.append(("Two banks, one cargo", ui.two(
+            ui.panel(f"Today · {ui.bank_label(info['bank'])}", info["borrower"],
+                     [f"Asked for {ui.fmt_money(info['amount'], info['currency'])}", f"Submitted {info['submitted']}"]),
+            ui.panel(("Earlier" if days is None else f"{days} days earlier") + f" · {ui.bank_label(m.entry.bank_id)}", other,
+                     [f"Pledged {m.entry.pledged_at.strftime('%d %b %Y')}", kind])) +
+            f'<div class="sk-tiny">Matched fingerprint: <span class="sk-mono">{ui.esc(hashes)}</span></div>'))
+    elif app["mode"] == "snowflake":
+        facts_row = snowflake_facts(store, rid)
+        txt = (f"Match type {facts_row.get('match_type')}; timing overlap {facts_row.get('timing_overlap_days')} day(s)."
+               if facts_row else "Match details are not available for this case.")
+        secs.append(("Two banks, one cargo", f"<p>{ui.esc(txt)}</p>"))
+
+    paths = [p for p in (inv.paths if inv else []) if p.edges]
+    # Headline the STRONGEST link, not the shortest route (a shared phone must not beat a shared owner).
+    _rank = {"UBO_OF": 0, "OWNS": 1, "DIRECTOR_OF": 2, "SHAREHOLDER_OF": 3, "REGISTERED_AT": 4, "HAS_PHONE": 5}
+    paths.sort(key=lambda p: (max(_rank.get(e.relation, 6) for e in p.edges), len(p.edges)))
+    fired_rules = {r["rule"] for r in rows}
+    link_title = ("Shared owner" if "R_SHARED_UBO" in fired_rules else
+                  "Shared director" if "R_SHARED_DIRECTOR" in fired_rules else "Linked companies")
+    if paths:
+        cards, rels = _walk_path(store, paths[0])
+        if len(cards) == 3:  # name the section after what actually connects the pair
+            mid = cards[1]["label"]
+            link_title = ("Shared phone" if mid.startswith("Shared phone") else "Shared address" if mid.startswith("Shared address")
+                          else "Shared owner" if any(r in ("owned by", "owner of", "owns") for r in rels)
+                          else "Shared director" if any("director" in r for r in rels) else "Linked companies")
+        extra = []
+        if inv.shared_addresses:
+            extra.append("They share an address: " + ", ".join(inv.shared_addresses))
+        if inv.shared_phones:
+            extra.append("They share a phone number: " + ", ".join(inv.shared_phones))
+        secs.append((link_title, ui.node_chain(cards, rels) +
+                     "".join(f'<div class="sk-note">{ui.esc(x)}</div>' for x in extra)))
+    else:
+        if inv is not None and inv.counterparty_company_id == inv.borrower_id:
+            txt = "It is the same legal entity at both banks, so no ownership link is needed."
         elif app["mode"] == "snowflake":
-            facts = snowflake_facts(store, rid)
-            if facts:
-                st.write(f"Match type **{facts.get('match_type')}** · timing overlap "
-                         f"**{facts.get('timing_overlap_days')}** day(s) (CORE.INVESTIGATION_FACTS).")
-            else:
-                st.caption("Match facts not available (CORE.INVESTIGATION_FACTS unreadable or empty).")
+            txt = "Ownership walks run in the pipeline. Use Investigate for live questions."
         else:
-            st.caption("No consortium match.")
+            txt = "No ownership link was found between the two borrowers."
+        secs.append((link_title, f"<p>{ui.esc(txt)}</p>"))
 
-    with st.expander("3 · Ownership path - node → relation → node", expanded=False):
-        paths = [p for p in (inv.paths if inv else []) if p.edges]
-        if paths:
-            draw_path(store, paths[0])
-            st.caption(" → ".join(describe_edge(e) for e in paths[0].edges))
-        elif inv is not None and inv.counterparty_company_id == inv.borrower_id:
-            st.write("Same legal entity at both banks (identical borrower token) - no path needed.")
-        elif app["mode"] == "snowflake":
-            st.caption("Graph walks run in the pipeline; use the Investigator page for live path queries.")
-        else:
-            st.caption("No ownership link found between the two borrowers.")
+    if rows:
+        total = sum(r["weight"] or 0 for r in rows)
+        sc = min(1.0, total)
+        secs.append(("Score", ui.score_rows(
+            [(RULE_PLAIN.get(r["rule"], r["rule"]), "", f"+{(r['weight'] or 0):.2f}") for r in rows],
+            f"{sc:.2f}" + (f" (capped from {total:.2f})" if total > 1.0 + 1e-9 else ""))))
+    else:
+        secs.append(("Score", "<p>No rules fired.</p>"))
+    st.markdown(ui.sections_card(secs), unsafe_allow_html=True)
+    if paths and st.checkbox("Show the link as a diagram", key=f"graph_{case.case_id}"):
+        draw_path(store, paths[0])
+        st.caption(" → ".join(describe_edge(e) for e in paths[0].edges))
 
-    with st.expander("4 · Rules fired - weight, sum, threshold", expanded=True):
-        rows, score, band = rule_rows(app, rid)
-        if rows:
-            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-            total = sum(r["weight"] or 0 for r in rows)
-            thr = get_settings().confidence_threshold
-            st.progress(min(1.0, float(score if score is not None else min(1.0, total))))
-            st.write(f"Sum of weights **{total:.2f}** (capped at 1.00) = score **{0 if score is None else score:.2f}** "
-                     f"· threshold **{thr:.2f}** · band **{band}**")
-        else:
-            st.caption("No rules fired.")
 
-    with st.expander("5 · Suspicious Transaction Report (STR)", expanded=False):
+def render_report(app, case, draft) -> None:
+    """Row-link card (expander) with the drafted report, and an All-details expander with the documents."""
+    store, rid = app["store"], case.request_id
+    res = app["results"].get(rid) if app["mode"] == "memory" else None
+    with st.expander("Drafted report", expanded=False):
         if draft is None:
-            st.caption("No STR drafted for this case.")
+            st.caption("No report was drafted for this case.")
         else:
             juris = None
             if report_templates is not None:
                 opts = ["Generic"] + list(getattr(report_templates, "JURISDICTIONS", ()))
-                pick = st.radio("Jurisdiction template", opts, horizontal=True, key=f"juris_{case.case_id}")
+                pick = st.radio("Format", opts, horizontal=True, key=f"juris_{case.case_id}",
+                                format_func=lambda o: _JURIS_PLAIN.get(o, o))
                 juris = None if pick == "Generic" else pick
-            with st.container(border=True):
-                st.markdown(md_for_streamlit(str_markdown(draft, juris)))
+            st.markdown(md_for_streamlit(str_markdown(draft, juris)))
+            seen, cits = set(), []
+            for sec in draft.sections:
+                for sent in sec.sentences:
+                    for c in sent.citations:
+                        if (c.kind, c.ref, c.page) not in seen:
+                            seen.add((c.kind, c.ref, c.page))
+                            cits.append(c)
+            if cits:
+                kinds = Counter(c.kind.value for c in cits)
+                st.caption("Sources: " + ", ".join(f"{v} {k}" for k, v in kinds.items()))
+                st.markdown(ui.citation_chips(cits), unsafe_allow_html=True)
+    with st.expander("All document details", expanded=False):
+        f = res.fields if res else store.get_fields(rid)
+        if f is None:
+            st.caption("No extracted fields stored for this request.")
+        else:
+            st.dataframe(fields_table(f).rename(columns={"field": "Field", "value": "Value", "source": "Source",
+                                                         "snippet": "Source line"}),
+                         use_container_width=True, hide_index=True)
+            rows, _s, _b = rule_rows(app, rid)
+            ans = vessel_answer(app, f, {r["rule"] for r in rows})
+            st.caption(f"Did the ship really call at the loading port? {ans}.")
 
 
-def page_mlro(app) -> None:
-    store, engine = app["store"], app.get("engine")
-    header("Compliance officer (MLRO)", "Review the evidence chain and drafted STR, then approve or reject as a named officer.")
-    if st.session_state.get("decided_msg"):
-        st.success(st.session_state.pop("decided_msg"))
-    cases = store.list_cases()
-    pending = [c for c in cases if c.status is CaseStatus.PENDING_APPROVAL]
-    st.caption(f"{len(pending)} pending · {len(cases) - len(pending)} decided")
-    if not cases:
-        st.info("No cases yet.")
-        return
-    only_pending = st.checkbox("Pending only", value=True, key="mlro_pending")
-    shown = pending if only_pending else cases
-    if not shown:
-        st.success("No pending cases.")
-        return
-    st.dataframe(pd.DataFrame([{"case": c.case_id, "request": c.request_id, "status": c.status.value,
-                                "hold": c.hold_recommended, "decided_by": c.decided_by} for c in shown]),
-                 use_container_width=True, hide_index=True)
-    cid = st.selectbox("Case", [c.case_id for c in shown], key="mlro_case")
-    case = store.get_case(cid)
-    draft = store.get_report(case.report_id)
-    st.subheader(f"{cid} · {case.status.value}")
-    render_evidence_chain(app, case, draft)
-    st.markdown("#### 6 · Decision & audit trail")
+def _evidence_block(score, thr: float) -> str:
+    tone = "bad" if (score is not None and score >= round(thr, 4)) else "warn"
+    sc = "-" if score is None else f"{score:.2f}"
+    return (f'<div class="sk-ev"><small>Evidence</small><div class="sk-score {tone}">{sc}</div>'
+            f'{ui.score_bar(score, thr)}<span>A case opens at {thr:.2f}</span></div>')
+
+
+def render_decision(app, case) -> None:
+    """Sticky card: evidence score, decision form (or recorded decision), log note."""
+    cid, engine, store = case.case_id, app.get("engine"), app["store"]
+    _rows, score, _band = rule_rows(app, case.request_id)
+    thr = float(get_settings().confidence_threshold)
+    ok, n = audit_status(app)
+    log_note = (f'<div class="sk-form-note"><span class="sk-tick {"ok" if ok else "bad"}">'
+                f'{"✓ Log verified" if ok else "Log check failed"} · {n} records</span></div>')
     if case.status is CaseStatus.PENDING_APPROVAL:
         with st.form(f"decide_{cid}"):
-            officer = st.text_input("Officer name (required)", key=f"officer_{cid}")
-            reason = st.text_area("Reason (required to reject)", key=f"reason_{cid}")
-            b1, b2 = st.columns(2)
-            approve = b1.form_submit_button("Approve - file case & recommend hold", type="primary")
-            reject = b2.form_submit_button("Reject - close case")
+            st.markdown(_evidence_block(score, thr) + '<div class="sk-h2">Decision</div>', unsafe_allow_html=True)
+            officer = st.text_input("Your name", key=f"officer_{cid}")
+            reason = st.text_area("Note", key=f"reason_{cid}", placeholder="Required to close")
+            approve = st.form_submit_button("File report and hold the loan", type="primary", use_container_width=True)
+            reject = st.form_submit_button("Close the case", use_container_width=True)
+            st.markdown(log_note, unsafe_allow_html=True)
         if approve or reject:
             decision = Decision.APPROVE if approve else Decision.REJECT
             try:
@@ -611,8 +852,9 @@ def page_mlro(app) -> None:
                 else:
                     engine.decide(cid, decision, officer, reason)
             except Exception as exc:
-                st.error(str(exc))
+                st.error(str(exc))  # the server's refusal, verbatim
             else:
+                st.session_state.pop("_audit_sf", None)
                 if app["mode"] == "snowflake":
                     st.session_state["decided_msg"] = f"DECIDE_CASE({cid}): {json.dumps(out, default=str)}"
                 else:
@@ -620,29 +862,83 @@ def page_mlro(app) -> None:
                         f"Case {cid} {'filed' if approve else 'closed'} by {officer.strip()}.")
                 st.rerun()
     else:
-        when = f"{case.decided_at:%Y-%m-%d %H:%M} UTC" if case.decided_at else "-"
-        st.info(f"Decided by {case.decided_by} at {when}. Reason: {case.reason or '-'}")
+        when = f"{case.decided_at:%d %b %Y %H:%M} UTC" if case.decided_at else "-"
+        st.markdown(ui.card("", _evidence_block(score, thr) + '<div class="sk-h2">Decision recorded</div>' + ui.facts([
+            ("Decided by", case.decided_by or "-"), ("When", when), ("Note", case.reason or "No note")]) + log_note),
+            unsafe_allow_html=True)
 
-    st.subheader("Audit trail")
-    recs = store.list_audit(cid) + store.list_audit(case.request_id)
+
+def _who(actor: str) -> str:
+    kind, _, name = (actor or "").partition(":")
+    return "by the system" if kind == "system" else f"by {name or actor}"
+
+
+def render_activity(app, case) -> None:
+    store = app["store"]
+    recs = store.list_audit(case.case_id) + store.list_audit(case.request_id)
     recs.sort(key=lambda r: r.seq)
-    st.dataframe(pd.DataFrame([{"seq": r.seq, "at": r.at.strftime("%Y-%m-%d %H:%M:%S"), "actor": r.actor,
-                                "action": r.action, "subject": r.subject_id, "hash": r.entry_hash[:12]}
-                               for r in recs]), use_container_width=True, hide_index=True)
+    items = [(_ACTION_PLAIN.get(r.action, r.action.replace("_", " ").capitalize()),
+              f"{_who(r.actor)} · {r.at.strftime('%d %b %H:%M')}") for r in recs]
+    with st.expander("Audit trail"):
+        if items:
+            st.markdown(ui.timeline(items), unsafe_allow_html=True)
+        _verify_button(app, store)
+
+
+def _verify_button(app, store) -> None:
     if st.button("Verify audit chain", key="verify"):
         if app["mode"] == "snowflake":
             ok, n, breaks = audit_verify_snowflake(store)
             sql_txt = "unavailable" if breaks is None else f"{breaks} break(s)"
             if ok and not breaks:
-                st.success(f"Audit chain intact ({n} records recomputed in Python). "
-                           f"CORE.V_AUDIT_VERIFY: {sql_txt}.")
+                st.success(f"Audit chain intact ({n} records recomputed in Python). CORE.V_AUDIT_VERIFY: {sql_txt}.")
             else:
-                st.error(f"Audit chain verification FAILED (python recompute ok={ok}); "
-                         f"CORE.V_AUDIT_VERIFY: {sql_txt}.")
-        elif engine.audit.verify():
+                st.error(f"Audit chain verification FAILED (python recompute ok={ok}); CORE.V_AUDIT_VERIFY: {sql_txt}.")
+        elif app["engine"].audit.verify():
             st.success(f"Audit chain intact ({len(store.list_audit())} records, hashes verified).")
         else:
             st.error("Audit chain verification FAILED - tampering or gap detected.")
+
+
+def page_mlro(app) -> None:
+    store = app["store"]
+    if st.session_state.get("decided_msg"):
+        st.success(st.session_state.pop("decided_msg"))
+    cases = store.list_cases()
+    pending = [c for c in cases if c.status is CaseStatus.PENDING_APPROVAL]
+    if not cases:
+        header("Cases")
+        st.info("No cases yet. Cases appear here once the pipeline drafts a report for a strong match.")
+        return
+    c1, c2 = st.columns([4, 1])
+    only_pending = c2.checkbox("Pending only", value=True, key="mlro_pending")
+    shown = pending if only_pending else cases
+    if not shown:
+        header("Cases")
+        st.success("No pending cases. Untick Pending only to look at decided cases.")
+        return
+    ids = [c.case_id for c in shown]
+    by_id = {c.case_id: c for c in shown}
+    cid = c1.selectbox("Case", ids, key="mlro_case",
+                       format_func=lambda i: f"{by_id[i].request_id} · {request_info(app, by_id[i].request_id)['borrower']}")
+    case = store.get_case(cid)
+    draft = store.get_report(case.report_id)
+    left, right = st.columns([5, 3], gap="large")
+    with left:
+        st.markdown(ui.breadcrumb(f"← Back to cases · {ids.index(cid) + 1} of {len(ids)} "
+                                  f"{'waiting for you' if only_pending else 'shown'}"), unsafe_allow_html=True)
+        render_hero(app, case)
+        rows, _s, _b = rule_rows(app, case.request_id)
+        render_case_card(app, case, rows)
+        render_report(app, case, draft)
+        with st.expander("See all cases"):
+            st.dataframe(ui.style_status(pd.DataFrame([{
+                "Case": c.case_id, "Request": c.request_id, "Status": ui.status_label(c.status.value),
+                "Decided by": c.decided_by or "-"} for c in shown]), "Status"), use_container_width=True, hide_index=True)
+    with right:
+        st.markdown('<span class="sk-sticky"></span>', unsafe_allow_html=True)
+        render_decision(app, case)
+        render_activity(app, case)
 
 
 def time_to_finding(app) -> pd.Series:
@@ -665,7 +961,7 @@ def time_to_finding(app) -> pd.Series:
 
 
 def page_risk(app) -> None:
-    header("Risk head", "Flagged exposure and daily summary across the consortium.")
+    header("Overview", PAGE_PURPOSE[PAGES[3]])
     df = requests_df(app)
     df["is_flagged"] = df["status"] != "CLEAR"
     df["exposure"] = df["amount"].where(df["is_flagged"], 0.0)
@@ -676,13 +972,13 @@ def page_risk(app) -> None:
     k[2].metric("Pending approval", int((df["status"] == "PENDING_APPROVAL").sum()))
     k[3].metric("Filed", int((df["status"] == "FILED").sum()))
 
-    st.subheader("Operational metrics")
+    subhead("Metrics")
     held = df[df["status"].isin(["PENDING_APPROVAL", "FILED"])].groupby("currency")["amount"].sum()
     m = st.columns(3)
     with m[0]:
-        st.markdown("**Exposure held** (PENDING + FILED)")
+        st.markdown("**Exposure held** (pending + filed)")
         if held.empty:
-            st.caption("None.")
+            st.caption("Nothing held yet.")
         for cur, amt in held.items():
             st.metric(cur or "?", f"{amt:,.0f}")
     try:
@@ -694,26 +990,30 @@ def page_risk(app) -> None:
                 help="Audit-log REQUEST_RECEIVED to CASE_OPENED, per request with a drafted STR.")
     m[2].metric("Analyst queue (need more evidence)", int((df["status"] == "HOLD-for-evidence").sum()))
 
-    st.subheader("Flagged exposure by currency")
+    subhead("Flagged exposure")
     exp = flagged.groupby("currency", as_index=False)["amount"].sum()
     if exp.empty:
-        st.caption("No flagged exposure.")
+        st.caption("No flagged exposure in the current data.")
     else:
         for col, (_, r) in zip(st.columns(len(exp)), exp.iterrows()):
             col.metric(r["currency"], f"{r['amount']:,.0f}")
     c1, c2 = st.columns(2)
     for col, key, title in ((c1, "bank", "By bank"), (c2, "commodity", "By commodity")):
         with col:
-            st.subheader(title)
+            subhead(title)
             g = df.groupby(key).agg(requests=("request_id", "count"), flagged=("is_flagged", "sum"),
                                     flagged_exposure=("exposure", "sum")).reset_index()
-            st.dataframe(g, use_container_width=True, hide_index=True)
+            st.dataframe(g.rename(columns={key: key.title(), "requests": "Requests", "flagged": "Flagged",
+                                           "flagged_exposure": "Flagged exposure"}),
+                         use_container_width=True, hide_index=True)
             st.bar_chart(g.set_index(key)[["requests", "flagged"]])
-    st.subheader("Daily summary")
+    subhead("Daily summary")
     daily = df.groupby("submitted").agg(requests=("request_id", "count"), flagged=("is_flagged", "sum"),
                                         flagged_exposure=("exposure", "sum")).reset_index()
-    st.dataframe(daily.sort_values("submitted", ascending=False), use_container_width=True, hide_index=True)
-    st.caption("Status mix: " + ", ".join(f"{k} {v}" for k, v in Counter(df["status"]).items()))
+    st.dataframe(daily.sort_values("submitted", ascending=False).rename(columns={
+        "submitted": "Date", "requests": "Requests", "flagged": "Flagged", "flagged_exposure": "Flagged exposure"}),
+        use_container_width=True, hide_index=True)
+    st.caption("Status mix: " + ", ".join(f"{ui.status_label(k)} {v}" for k, v in Counter(df["status"]).items()))
 
 
 # ---------------------------------------------------------------------- policy what-if
@@ -763,8 +1063,7 @@ def _reset_whatif() -> None:
 
 
 def page_whatif(app) -> None:
-    header("Policy what-if", "Re-score every screened request under a different threshold or rule weights - "
-                             "no pipeline re-run.")
+    header("What if", PAGE_PURPOSE[PAGES[4]])
     frame, rules, labels_ok = whatif_frame(app)
     base_thr = float(get_settings().confidence_threshold)
     base_w = {r: float(RULE_WEIGHTS.get(r, 0.0)) for r in rules}
@@ -773,10 +1072,11 @@ def page_whatif(app) -> None:
                 "detection and false-positive rates cannot be computed.")
     side, main = st.columns([1, 2])
     with side:
-        st.markdown("**Policy levers**")
-        st.button("Reset to current policy", on_click=_reset_whatif, key="wi_reset")
-        thr = st.slider("Confidence threshold", 0.05, 1.0, base_thr, 0.01, key="wi_thr")
-        weights = {r: st.slider(r, 0.0, 1.0, base_w[r], 0.01, key=f"wi_w_{r}") for r in rules}
+        with st.expander("Policy levers", expanded=True):
+            st.button("Reset to current policy", on_click=_reset_whatif, key="wi_reset", use_container_width=True)
+            thr = st.slider("Confidence threshold", 0.05, 1.0, base_thr, 0.01, key="wi_thr")
+            st.caption("Rule weights")
+            weights = {r: st.slider(r, 0.0, 1.0, base_w[r], 0.01, key=f"wi_w_{r}") for r in rules}
     base = simulate(frame, rules, base_w, base_thr)
     sim = simulate(frame, rules, weights, thr)
     with main:
@@ -787,12 +1087,17 @@ def page_whatif(app) -> None:
                     f"{(sim['fpr'] - base['fpr']) * 100:+.1f} pp", delta_color="inverse")
         k[2].metric("Escalated to STR", int(sim["pred"].sum()), int(sim["pred"].sum() - base["pred"].sum()))
         k[3].metric("Requests", len(frame))
+        if labels_ok:
+            chart = pd.DataFrame({"Current policy": [base["detection"] * 100, base["fpr"] * 100],
+                                  "Simulated": [sim["detection"] * 100, sim["fpr"] * 100]},
+                                 index=["Detection rate %", "False-positive rate %"])
+            st.bar_chart(chart, height=200)
         cm = pd.DataFrame({"Actual duplicate": [sim["tp"], sim["fn"]], "Actual clean": [sim["fp"], sim["tn"]]},
                           index=["Predicted HIGH (escalate)", "Predicted LOW (hold / clear)"])
         bcm = pd.DataFrame({"Actual duplicate": [base["tp"], base["fn"]], "Actual clean": [base["fp"], base["tn"]]},
                            index=cm.index)
         c1, c2 = st.columns(2)
-        c1.markdown("**Confusion matrix - simulated**")
+        c1.markdown("**Confusion matrix (simulated)**")
         c1.dataframe(cm, use_container_width=True)
         c2.markdown("**Delta vs current policy**")
         c2.dataframe(cm - bcm, use_container_width=True)
@@ -824,30 +1129,46 @@ def page_whatif(app) -> None:
 
 
 # --------------------------------------------------------------------------- main
+def page_counts(app) -> dict[str, int]:
+    """Small count shown beside a nav item: flagged requests (analyst), pending cases (MLRO)."""
+    try:
+        df = requests_df(app)
+        return {PAGES[0]: int((df["status"] != "CLEAR").sum()),
+                PAGES[2]: int((df["status"] == "PENDING_APPROVAL").sum())}
+    except Exception:
+        return {}
+
+
 def main() -> None:
-    st.set_page_config(page_title="Suraksha", page_icon="🛡️", layout="wide")
-    st.markdown(CSS, unsafe_allow_html=True)
-    st.sidebar.markdown("### 🛡️ Suraksha")
-    st.sidebar.caption("Duplicate-financing detector")
-    page = st.sidebar.radio("Persona", PAGES, key="persona")
+    st.set_page_config(page_title="Suraksha", page_icon="🛡️", layout="wide", initial_sidebar_state="collapsed")
+    st.markdown(ui.CSS, unsafe_allow_html=True)
     mode, session = detect_backend()
-    st.sidebar.caption(f"Backend: {mode}" + (" (Streamlit-in-Snowflake session)" if session is not None else ""))
-    st.markdown('<div class="sk-banner">Synthetic data only - no real customers, banks or registry records.</div>',
-                unsafe_allow_html=True)
+    if mode != "snowflake":  # web fonts only locally; Streamlit-in-Snowflake blocks them and uses the fallback stacks
+        st.markdown(ui.FONT_CSS, unsafe_allow_html=True)
+    app, problem = None, None
     if mode == "snowflake":
         try:
             store = load_snowflake_store(session)
             rows = snowflake_rows(store)
+            if rows:
+                app = {"mode": "snowflake", "store": store, "engine": None, "rows": rows}
+            else:
+                problem = ("info", "No pipeline results yet. Run `CALL SURAKSHA.CORE.RUN_PIPELINE(42)` first "
+                                   "(after `CALL SURAKSHA.CORE.LOAD_SYNTH(42)`), then refresh.")
         except Exception as exc:
-            st.error(f"Could not read Snowflake: {exc}")
-            return
-        if not rows:
-            st.info("No pipeline results yet. Run `CALL SURAKSHA.CORE.RUN_PIPELINE(42)` first "
-                    "(after `CALL SURAKSHA.CORE.LOAD_SYNTH(42)`), then refresh.")
-            return
-        app = {"mode": "snowflake", "store": store, "engine": None, "rows": rows}
+            problem = ("error", f"Could not read Snowflake: {exc}")
     else:
         app = load_app()
+    counts = page_counts(app) if app else {}
+    nav = {p: (f"{NAV_LABEL[p]} · {counts[p]}" if p == PAGES[2] and p in counts else NAV_LABEL[p]) for p in PAGES}
+    c_brand, c_nav, c_badge = st.columns([1.9, 6.4, 2.2])
+    c_brand.markdown(ui.brand_mark(), unsafe_allow_html=True)
+    page = c_nav.radio("Page", PAGES, key="persona", horizontal=True, label_visibility="collapsed",
+                       format_func=lambda p: nav[p])
+    c_badge.markdown(ui.badges(mode == "snowflake"), unsafe_allow_html=True)
+    if problem is not None:
+        getattr(st, problem[0])(problem[1])
+        return
     {PAGES[0]: page_analyst, PAGES[1]: page_investigator, PAGES[2]: page_mlro, PAGES[3]: page_risk, PAGES[4]: page_whatif}[page](app)
 
 
