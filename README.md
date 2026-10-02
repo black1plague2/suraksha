@@ -6,7 +6,7 @@
 promised to another bank — and it explains every warning in plain words so a person can make the final call.
 
 Built for the Snowflake CoCo Hackathon (GCC Edition) · Risk, Fraud and Regulatory Intelligence track ·
-all data in this project is made up for the demo.
+all data in this project is made up for the demo
 
 ---
 
