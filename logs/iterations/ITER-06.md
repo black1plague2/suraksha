@@ -35,3 +35,8 @@ document embeddings (leaks content), HE/MPC (scope), Docker/CLI (off-platform).
 sql/01 VESSEL_CALLS + 04 ALTERs (ADD COLUMN IF NOT EXISTS, DROP NOT NULL); Stream/Task syntax and EXECUTE TASK grant (written
 from memory); stream consume inside an owner's-rights proc; OBJECT_INSERT in SUBMIT_REQUEST; nested CALL from SUBMIT_DEMO;
 Streamlit app re-created (09) to pick up new pages; Python↔SQL parity incl. stand-alone rows.
+
+## Live (CoCo) — 9/9 PASS
+Deploy of sql/01, 04, 07, 08, 11, 12, 09 clean on the first attempt (incl. the Stream/Task written without doc checks).
+Batch: 192 requests, detection 1.0, FPR 0.0147, 134/36/22, audit intact; parity 0/58; near-real-time duplicate screened
+~74 s after submission. Evidence: `docs/evidence/ITER06_live_coco.md`.

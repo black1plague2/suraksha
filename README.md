@@ -10,10 +10,10 @@ Snowflake CoCo CLI Hackathon (GCC Edition) · Track: Risk, Fraud and Regulatory 
 ## Results (live on Snowflake, identical to local)
 | PRD goal | Target | Result |
 |---|---|---|
-| G1 detect seeded duplicates | ≥ 90% | **100%** (43/43) |
-| G1 false-positive rate | < 10% | **1.5%** (2/130 — both deliberately ambiguous decoys, held for more evidence, not filed) |
-| G2 alert → cited finding | < 5 min | **~14 s** for all 173 requests |
-| G3 every claim cited | no black box | 36 STRs, 0 uncited sentences; SQL rules reproduce Python scores exactly (0/45 mismatches) |
+| G1 detect seeded duplicates | ≥ 90% | **100%** (56/56, incl. phantom cargo + document mismatches) |
+| G1 false-positive rate | < 10% | **1.5%** (2/136 — both deliberately ambiguous decoys, held for more evidence, not filed) |
+| G2 alert → cited finding | < 5 min | **~74 s** for a single new request via the live inbox stream; ~14 s for a 173-request batch |
+| G3 every claim cited | no black box | 36 STRs, 0 uncited sentences; SQL rules reproduce Python scores exactly (0/58 mismatches) |
 | G4 humans in control | named officer only | enforced in SQL: `DECIDE_CASE` refuses system actors; app role cannot UPDATE cases or DELETE audit |
 | G5 CoCo in every phase | plan · build · run · test | [evidence](docs/evidence/) |
 
@@ -36,6 +36,8 @@ Details: [PRD](docs/PRD.md) · [Architecture](docs/ARCHITECTURE.md) · [Contract
 | BUILD | Deployed `sql/00–11` from the Git repo; diagnosed every live error (qmark binds, NULL binds, stale code, trial-account egress) | [BUILD 00–05](docs/evidence/BUILD_coco_00-05.md) · [BUILD 07–11](docs/evidence/BUILD_coco_07-10.md) |
 | RUN | Screened all 173 requests in Snowflake: 100% / 1.5% / 14 s | [RUN_coco_batch.md](docs/evidence/RUN_coco_batch.md) |
 | TEST | Rule parity, G4 refusals, privilege denials, audit chain | [TEST_coco.md](docs/evidence/TEST_coco.md) |
+| BUILD (authored) | CoCo wrote, deployed, tested and refined the monitoring layer itself (`sql/13`) | [MONITORING_coco.md](docs/evidence/MONITORING_coco.md) |
+| RUN + TEST (ITER-06) | Phantom-cargo + document-mismatch rules, near-real-time inbox screening (74 s) — 9/9 PASS | [ITER06_live_coco.md](docs/evidence/ITER06_live_coco.md) |
 
 ## Reproduce
 - **On Snowflake (browser only):** [docs/SNOWSIGHT_RUNBOOK.md](docs/SNOWSIGHT_RUNBOOK.md) — connect the Git repo, run `sql/06`,
