@@ -208,7 +208,7 @@ def test_11_run_pipeline_batch_static():
     code = _code(name)
     assert "CREATE OR REPLACE PROCEDURE SURAKSHA.CORE.RUN_PIPELINE_BATCH(SEED INT, RESET BOOLEAN)" in code
     assert "EXECUTE AS OWNER" in code and "EXECUTE AS CALLER" not in code
-    assert "RUNTIME_VERSION = '3.12'" in code and 'PROC_VERSION = "iter05-batch"' in code
+    assert "RUNTIME_VERSION = '3.12'" in code and 'PROC_VERSION = "iter05-batch-pkgcheck"' in code
     # granted to the admin role only (reset is destructive)
     grants = re.findall(r"GRANT\s+USAGE\s+ON\s+PROCEDURE\s+SURAKSHA\.CORE\.RUN_PIPELINE_BATCH[^;]*;", code)
     assert grants and all(g.rstrip(";").endswith("TO ROLE SURAKSHA_ADMIN") for g in grants)
@@ -239,3 +239,44 @@ def test_11_run_pipeline_batch_static():
         rel = Path("src", *mod.split("."))
         assert (ROOT / rel).with_suffix(".py").is_file() or (ROOT / rel / "__init__.py").is_file(), mod
     assert STAGE_REF.findall(code) and all((ROOT / r).exists() for r in STAGE_REF.findall(code) if r and not r.endswith("/"))
+
+
+@pytest.mark.parametrize("fname", ["07_load_synth_proc.sql", "08_run_pipeline_proc.sql", "11_run_pipeline_batch.sql"])
+def test_ensure_pkg_skips_stale_sources_and_reports_them(fname, tmp_path):
+    # Live ITER-05: RUN_PIPELINE_BATCH silently loaded a stale package copy without store/batch.py.
+    import re as _re
+    src = (SQL_DIR / fname).read_text(encoding="utf-8")
+    body = _re.findall(r"\$\$(.*?)\$\$", src, _re.S)[0]
+    ns: dict = {}
+    exec(compile(body, fname, "exec"), ns)
+    ns["DST"] = str(tmp_path / "pkg")
+    git, code = ns["STAGES"]
+    full = ["src/suraksha/__init__.py"] + ["src/" + m for m in ns["REQUIRED_MODULES"]]
+
+    class Row(dict):
+        pass
+
+    class Sess:
+        def __init__(self, listing):
+            self.listing = listing
+            self.got = []
+            self.file = self
+
+        def sql(self, q):
+            base = q[len("LIST "):-len("suraksha/")]
+            names = self.listing.get(base)
+            if isinstance(names, Exception):
+                raise names
+            return type("R", (), {"collect": lambda _s: [Row(name="stage/x/" + n) for n in names]})()
+
+        def get(self, path, tgt):
+            self.got.append(path)
+
+    # git source fails (e.g. LIST under owner's rights), fallback copy current -> uses fallback
+    s = Sess({git: RuntimeError("LIST not allowed"), code: full})
+    assert ns["ensure_pkg"](s).startswith(code)
+    # git source fails, fallback stale -> loud error naming both sources, nothing downloaded
+    s = Sess({git: RuntimeError("LIST not allowed"), code: ["src/suraksha/__init__.py"]})
+    with pytest.raises(RuntimeError) as e:
+        ns["ensure_pkg"](s)
+    assert "missing" in str(e.value) and "LIST not allowed" in str(e.value) and not s.got

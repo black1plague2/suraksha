@@ -66,3 +66,9 @@ DECIDE_CASE transaction + `?` binds in owner's-rights proc · container runtime 
   `RUN_PIPELINE_BATCH(SEED, RESET)` EXECUTE AS OWNER, admin-only, demo-only reset of workflow tables.
 - Full seed-42 run: **27 statements** (was ~1,900; originally 76,703 store calls). Parity with in-memory pipeline proven.
 - **351 passed**; eval 5/5 PASS; red-team v2 unchanged.
+- Live: `11` deployed OK; `CALL RUN_PIPELINE_BATCH(42, TRUE)` → `ModuleNotFoundError: No module named 'suraksha.store.batch'`
+  although batch.py is on GitHub (25 files). Cause: the proc's package loader silently fell back to the stale `@CORE.CODE` copy
+  (24 files) — most likely LIST on the git stage failed under owner's rights.
+- Fix (master): every proc's `ensure_pkg` now (a) checks REQUIRED_MODULES per proc and skips a stale source, (b) clears /tmp
+  before download, (c) raises with every source's error if none is current; `07` and `11` REMOVE + COPY FILES refresh
+  `@CORE.CODE` on each deploy. PROC_VERSIONs → `iter05-pkgcheck` / `iter05-batch-pkgcheck`. +3 tests; **354 passed.**

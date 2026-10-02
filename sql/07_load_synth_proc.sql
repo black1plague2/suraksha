@@ -24,6 +24,7 @@ CREATE STAGE IF NOT EXISTS SURAKSHA.CORE.CODE
   ENCRYPTION = (TYPE = 'SNOWFLAKE_SSE')
   COMMENT = 'python source copied from the git repo for stored procedures';
 
+REMOVE @SURAKSHA.CORE.CODE/src/;  -- refresh the fallback copy so it can never be stale
 COPY FILES INTO @SURAKSHA.CORE.CODE/src/
   FROM @SURAKSHA.CORE.SURAKSHA_REPO/branches/main/src/
   PATTERN = '.*[.]py';
@@ -39,6 +40,7 @@ AS
 $$
 import json
 import os
+import shutil
 import sys
 
 STAGES = (  # git clone first: always current after ALTER GIT REPOSITORY ... FETCH (live ITER-04: stale code ran)
@@ -46,7 +48,8 @@ STAGES = (  # git clone first: always current after ALTER GIT REPOSITORY ... FET
     "@SURAKSHA.CORE.CODE/src/",
 )
 DST = "/tmp/suraksha_src"
-PROC_VERSION = "iter04-batch-gitfirst"  # bump when the proc body changes; shows in the returned JSON
+REQUIRED_MODULES = ('suraksha/synth/generator.py', 'suraksha/store/snowflake.py')  # a source missing these is stale
+PROC_VERSION = "iter05-pkgcheck"  # bump when the proc body changes; shows in the returned JSON
 
 TRUNCATE_TABLES = [
     "SURAKSHA.REGISTRY.ADDRESSES", "SURAKSHA.REGISTRY.COMPANIES", "SURAKSHA.REGISTRY.PERSONS",
@@ -59,28 +62,31 @@ def ensure_pkg(session):
     # Never trust an already-imported copy: a warm sandbox can keep an old version between calls.
     for m in [m for m in sys.modules if m == "suraksha" or m.startswith("suraksha.")]:
         del sys.modules[m]
-    last = None
+    errors = []
     for base in STAGES:
         try:
             rows = session.sql("LIST " + base + "suraksha/").collect()
-            n = 0
+            rels = []
             for r in rows:
                 name = r["name"]
                 i = name.find("/src/suraksha/")
-                if i < 0 or not name.endswith(".py"):
-                    continue
-                rel = name[i + len("/src/"):]
+                if i >= 0 and name.endswith(".py"):
+                    rels.append(name[i + len("/src/"):])
+            missing = [x for x in REQUIRED_MODULES if x not in rels]
+            if not rels or missing:  # stale copy (live ITER-05: fell back to a stage without store/batch.py)
+                errors.append(base + ": " + str(len(rels)) + " files, missing " + str(missing))
+                continue
+            shutil.rmtree(DST, ignore_errors=True)  # no leftovers from earlier calls in a warm sandbox
+            for rel in rels:
                 tgt = os.path.join(DST, os.path.dirname(rel))
                 os.makedirs(tgt, exist_ok=True)
                 session.file.get(base + rel, tgt)
-                n += 1
-            if n:
-                if DST not in sys.path:
-                    sys.path.insert(0, DST)
-                return base + " (" + str(n) + " files)"
-        except Exception as e:  # try next source
-            last = e
-    raise RuntimeError("could not load suraksha package from stage: " + str(last))
+            if DST not in sys.path:
+                sys.path.insert(0, DST)
+            return base + " (" + str(len(rels)) + " files)"
+        except Exception as e:
+            errors.append(base + ": " + type(e).__name__ + ": " + str(e)[:300])
+    raise RuntimeError("could not load a current suraksha package; tried -> " + " | ".join(errors))
 
 
 class _Cur:
