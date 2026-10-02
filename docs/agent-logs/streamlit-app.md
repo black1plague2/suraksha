@@ -11,3 +11,12 @@
 - Verify audit chain (Snowflake): `AuditLog.verify()` over `store.list_audit()` with naive TIMESTAMP_NTZ values re-tagged UTC (hash was computed over aware UTC), plus breaks count from CORE.V_AUDIT_VERIFY.
 - environment.yml: added snowflake-snowpark-python. Tests: +fake-session smoke tests (detection, empty results, 4 pages, verify, decide routing, decide error). Suite: 336 passed.
 - Needs live verification: DECIDE_CASE return shape (parsed as JSON; `error` key => refusal), `session.connection` vs `session._conn._conn` in SiS, TIMESTAMP_NTZ hash round-trip, SiS container vs warehouse runtime package availability.
+
+## Round 3 (ITER-06)
+- New page "Policy what-if" (`page_whatif`, pure `simulate()` / `whatif_frame()`): numpy/pandas re-score from fired rules, sliders default from `config.RULE_WEIGHTS` / `Settings.confidence_threshold`; metrics, confusion matrix, delta, band flips, marginal value per rule (weight -> 0). Memory labels via `load_app()["labels"]`; Snowflake labels from `PIPELINE_RESULTS.label_duplicate` (added to the `snowflake_rows` SELECT; missing -> info banner, no crash).
+- MLRO page: `render_evidence_chain` (6 ordered expanders); STR rendered via `report_templates.render(draft, jurisdiction)` when importable (radio Generic / JURISDICTIONS), fallback `render_markdown`. Ownership path drawn as node -> relation -> node (`draw_path`).
+- Risk head: exposure held by currency, median request->CASE_OPENED time from audit, analyst queue count.
+- Robustness: Investigator "needs more evidence" list no longer assumes `investigation` is set (other agents now emit LOW results without one).
+- Tests: +what-if (memory + fake Snowflake), evidence-chain steps, risk metrics; fake-session rows gained `LABEL_DUPLICATE`.
+- Assumption: Snowflake `py_rules` holds fired rule ids (JSON array) and `label_duplicate` is a BOOLEAN column of CORE.PIPELINE_RESULTS.
+

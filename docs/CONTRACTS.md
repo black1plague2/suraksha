@@ -176,3 +176,25 @@ Files: `docs/COCO_USAGE.md`, `docs/RUNBOOK.md`, `docs/GLOSSARY.md`, `docs/agent-
 - COCO_USAGE.md: concrete Snowflake Cortex Code (CoCo) CLI prompts for each phase PLAN / BUILD / RUN / TEST mapped to this repo's files, with a table "phase → prompt → artifact produced → evidence to screenshot for judges".
 - RUNBOOK.md: local quickstart (uv/pip, pytest, demo), Snowflake deploy steps (reference sql/ order), Slack setup, troubleshooting.
 - GLOSSARY.md: LC, B/L, WR, UBO, STR, FIU-IND, MLRO, consortium, fingerprint, etc.
+
+## G. Physical-cargo and cross-document rules (ITER-06, agent **new-rules**)
+Two deterministic, explainable rule families that can raise a request **without a consortium match** (phantom cargo / forged documents at a single bank). No ML. Mirrored in SQL (`sql/04_rules.sql`) so Python-vs-SQL parity holds.
+
+| Rule | Weight | Fires when |
+|---|---|---|
+| `R_NO_VESSEL_CALL` | 0.35 | B/L vessel+voyage has no recorded call at the port of loading within +-10 days of the shipment date in `REGISTRY.VESSEL_CALLS` ("cargo may not exist"). Only evaluated when vessel, voyage, POL and shipment date were extracted and the feed is loaded; otherwise no fire and `document_gaps` returns an analyst ask. Window: `ship_date BETWEEN arrived-10d AND departed+10d`; port compared as upper-case alnum; vessel/voyage via `store.base.vessel_key / voyage_key`. Cites the extracted B/L fields, plus every `vessel_calls:<vessel>/<voyage>/<port>` row checked (or, when there is none, a `vessel_calls:<vessel>/<voyage>` citation whose snippet states the query scope). |
+| `R_DOC_MISMATCH` | 0.25 | B/L, invoice, LC, warehouse receipt disagree: quantity differs > 2% after unit normalisation (B/L vs invoice vs WR; includes WR > B/L), canonical commodity code differs (B/L/invoice/LC/WR), or invoice value > LC amount by > 5% (same currency). Cites both conflicting document lines (doc_id, page, line). |
+
+**Table** `REGISTRY.VESSEL_CALLS(vessel, voyage, port, arrived DATE, departed DATE)` - synthetic stand-in for Snowflake Marketplace AIS / port-call data. Store API: `vessel_calls(vessel, voyage) -> list[dict]` and `has_vessel_call_feed() -> bool` (False = no data loaded, the rule must not fire); `load_registry(..., vessel_calls=None)` (optional last kwarg, old callers unchanged); `snapshot_registry()` and `RegistryCachedStore` include `vessel_calls`.
+
+**API**
+```python
+# investigator.py
+def document_checks(req, fields, store, settings) -> list[Evidence]   # R_NO_VESSEL_CALL / R_DOC_MISMATCH that fired
+def document_gaps(req, fields, store) -> list[str]                    # analyst asks for checks that could not run
+# confidence.py
+def score(inv, settings, extra_evidence=None, extra_missing=None)    # with a consortium match: folded into the normal sum
+def score_standalone(evidence, settings, *, request_id="", gaps=None) # NO match: sum of weights, band ALWAYS LOW
+```
+**Semantics.** With a consortium match the two rules add to the normal score (so they can lift a case over the 0.6 HIGH threshold and appear in the STR PART 5 with document / registry citations). Without a match the result is never HIGH and never an auto-drafted STR: `score >= settings.standalone_review_threshold` (0.25, i.e. any single fired rule) gives `NEED_MORE_EVIDENCE` with `investigation=None`, otherwise `CLEAR`. `INVESTIGATION_FACTS` gets `no_vessel_call`, `doc_mismatch`; stand-alone rows have `match_type NULL` and `V_CONFIDENCE` forces their band to LOW.
+Synthetic scenarios: `phantom_no_vessel_call` (5, positive), `doc_mismatch_qty` (4) and `doc_mismatch_value` (4) (positive), `decoy_minor_rounding` (3, qty within 2%) and `decoy_vessel_call_edge` (3, call 8 days off) (negative).

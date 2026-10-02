@@ -64,7 +64,19 @@ class Suraksha:
             log.info("pipeline_done", extra={"ctx": {**ctx, "status": status.value, "elapsed_ms": round(ms, 1)}})
             return PipelineResult(rid, status, fields, matches, inv, conf, draft, case, ms)
 
+        # Physical-cargo (vessel call) + cross-document rules: need no consortium match (ITER-06)
+        doc_ev = investigator.document_checks(req, fields, self.store, self.settings)
+        doc_gaps = investigator.document_gaps(req, fields, self.store)
+
         if not matches:
+            if doc_ev:  # stand-alone finding: never HIGH / never an auto-drafted STR; an analyst decides
+                conf = confidence.score_standalone(doc_ev, self.settings, request_id=rid, gaps=doc_gaps)
+                self.audit.append("system:investigator", "EVIDENCE_SCORED", rid,
+                                  {"score": conf.score, "band": conf.band.value,
+                                   "rules": [e.rule_id for e in conf.evidence], "standalone": True})
+                if conf.score >= self.settings.standalone_review_threshold:
+                    self.audit.append("system:pipeline", "EVIDENCE_REQUESTED", rid, {"missing": conf.missing})
+                    return done(PipelineStatus.NEED_MORE_EVIDENCE, None, conf)
             self.audit.append("system:pipeline", "CLEARED", rid, {"reason": "no consortium match"})
             return done(PipelineStatus.CLEAR)
 
@@ -74,7 +86,7 @@ class Suraksha:
         best = None
         for m in matches[:MAX_MATCHES_INVESTIGATED]:
             inv = investigator.investigate(req, m, self.store, self.settings)
-            conf = confidence.score(inv, self.settings)
+            conf = confidence.score(inv, self.settings, extra_evidence=doc_ev, extra_missing=doc_gaps)
             if best is None or conf.score > best[1].score:
                 best = (inv, conf)
         inv, conf = best

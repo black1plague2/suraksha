@@ -30,6 +30,12 @@ CREATE TABLE IF NOT EXISTS ROLES (
 CREATE TABLE IF NOT EXISTS CORP_OWNERS (
   owner_company_id VARCHAR NOT NULL, owned_company_id VARCHAR NOT NULL, pct FLOAT
 );
+-- Port-call feed: synthetic stand-in for Snowflake Marketplace AIS / port-call data (physical-cargo rule
+-- R_NO_VESSEL_CALL, sql/04).  One row per (vessel, voyage, port) call.  Loaded by LOAD_SYNTH (sql/07).
+CREATE TABLE IF NOT EXISTS VESSEL_CALLS (
+  vessel VARCHAR NOT NULL, voyage VARCHAR NOT NULL, port VARCHAR NOT NULL,
+  arrived DATE NOT NULL, departed DATE NOT NULL
+);
 
 -- ------------------------------------------------------------------ CORE
 USE SCHEMA CORE;

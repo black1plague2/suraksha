@@ -5,7 +5,7 @@ Why: inside a stored procedure every statement costs ~0.5 s round-trip (live ITE
 warehouse size. The work itself (screening) is pure CPU and takes seconds in memory.
 
 Shape of a run:
-  read   : registry (5 SELECTs), consortium ledger (1), policy clauses (1), transactions (3), last audit row (1)
+  read   : registry (6 SELECTs, incl. REGISTRY.VESSEL_CALLS), consortium ledger (1), policy clauses (1), transactions (3), last audit row (1)
   screen : load all of that into a MemoryStore, run `Suraksha(memory).process(req)` for every request
            (identical code path and results as the plain in-memory pipeline); the AuditLog continues the
            existing Snowflake chain because the last stored record is pre-loaded into the MemoryStore audit
@@ -38,8 +38,9 @@ T_FACTS = "SURAKSHA.CORE.INVESTIGATION_FACTS"
 
 SQL_FACTS = (
     f"INSERT INTO {T_FACTS} (request_id, match_type, same_borrower, shared_ubo_count, shared_director_count, "
-    "corp_ownership_link, shared_address_count, shared_phone_count, timing_overlap_days) "
-    "SELECT %s, %s, %s, %s, %s, %s, %s, %s, %s"
+    "corp_ownership_link, shared_address_count, shared_phone_count, timing_overlap_days, "
+    "no_vessel_call, doc_mismatch) "
+    "SELECT %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s"
 )
 SQL_RESULTS = (
     f"INSERT INTO {T_RESULTS} (request_id, status, py_score, py_band, py_rules, label_duplicate, scenario) "
@@ -52,14 +53,22 @@ class AlreadyProcessedError(RuntimeError):
 
 
 def facts_row(res: PipelineResult) -> tuple | None:
-    """Same columns/derivations as record() in sql/08 for INVESTIGATION_FACTS."""
+    """Same columns/derivations as record() in sql/08 for INVESTIGATION_FACTS.
+
+    With a consortium match: the investigation facts plus the document-rule flags. Stand-alone result (no
+    consortium match, document/cargo evidence only; investigation is None): match_type NULL, all link facts
+    empty, only no_vessel_call / doc_mismatch set."""
     inv, conf = res.investigation, res.confidence
-    if inv is None or conf is None:
+    if conf is None:
         return None
+    fired = {e.rule_id for e in conf.evidence}
+    nvc, dm = "R_NO_VESSEL_CALL" in fired, "R_DOC_MISMATCH" in fired
+    if inv is None:
+        return (res.request_id, None, False, 0, 0, False, 0, 0, None, nvc, dm)
     same = inv.counterparty_company_id is not None and inv.counterparty_company_id == inv.borrower_id
     own = any(p.edges and all(e.relation == "OWNS" for e in p.edges) for p in inv.paths)
     return (res.request_id, inv.match.match_type.value, bool(same), len(inv.shared_ubos), len(inv.shared_directors),
-            bool(own), len(inv.shared_addresses), len(inv.shared_phones), inv.timing_overlap_days)
+            bool(own), len(inv.shared_addresses), len(inv.shared_phones), inv.timing_overlap_days, nvc, dm)
 
 
 def result_row(res: PipelineResult, label: bool, scenario: str) -> tuple:
@@ -102,10 +111,11 @@ class BatchSnowflakeRun:
     def read(self) -> None:
         t0 = time.perf_counter()
         sf, mem = self.sf, self.mem
-        reg = sf.snapshot_registry()                                  # 5 SELECTs
+        reg = sf.snapshot_registry()                                  # 6 SELECTs
         mem.load_registry(reg["companies"], reg["persons"], reg["roles"], reg["corp_owners"], reg["addresses"],
                           sf.all_transactions(),                      # 3 SELECTs (one per bank schema)
-                          sf.policy_clauses())                        # 1 SELECT
+                          sf.policy_clauses(),                        # 1 SELECT
+                          reg.get("vessel_calls"))                    # port-call feed (6th registry SELECT)
         mem.consortium.extend(sf.list_consortium())                   # 1 SELECT
         self._n_ledger = len(mem.consortium)
         self._tail = sf.last_audit()                                  # 1 SELECT

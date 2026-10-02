@@ -16,6 +16,15 @@ class Settings:
     confidence_threshold: float = float(os.getenv("SURAKSHA_CONFIDENCE_THRESHOLD", "0.6"))
     # Two pledges of the same cargo within this many days count as timing overlap.
     timing_window_days: int = int(os.getenv("SURAKSHA_TIMING_WINDOW_DAYS", "45"))
+    # Physical-cargo check (R_NO_VESSEL_CALL): a port call counts when the shipment date is within this many
+    # days of the call window [arrived, departed].
+    vessel_call_window_days: int = int(os.getenv("SURAKSHA_VESSEL_CALL_WINDOW_DAYS", "10"))
+    # Cross-document consistency (R_DOC_MISMATCH) tolerances.
+    qty_tolerance: float = float(os.getenv("SURAKSHA_QTY_TOLERANCE", "0.02"))      # relative, after unit normalisation
+    value_tolerance: float = float(os.getenv("SURAKSHA_VALUE_TOLERANCE", "0.05"))  # invoice may exceed LC by this much
+    # Stand-alone (NO consortium match) document/cargo evidence at or above this score -> NEED_MORE_EVIDENCE.
+    # Never HIGH / never an auto-drafted STR without a consortium match.
+    standalone_review_threshold: float = float(os.getenv("SURAKSHA_STANDALONE_THRESHOLD", "0.25"))
     # Max hops for the ownership-graph search.
     max_graph_hops: int = int(os.getenv("SURAKSHA_MAX_GRAPH_HOPS", "4"))
     # Backend: "memory" or "snowflake"
@@ -37,6 +46,8 @@ RULE_WEIGHTS: dict[str, float] = {
     "R_SAME_ADDRESS": 0.10,
     "R_SAME_PHONE": 0.10,
     "R_TIMING_OVERLAP": 0.15,   # second pledge within timing window of the first
+    "R_NO_VESSEL_CALL": 0.35,   # B/L vessel+voyage has no port call at the POL within +-10d (cargo may not exist)
+    "R_DOC_MISMATCH": 0.25,     # B/L vs invoice vs LC vs warehouse receipt disagree (qty / commodity / value)
 }
 
 

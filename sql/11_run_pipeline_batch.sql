@@ -62,7 +62,7 @@ STAGES = (  # git clone first: always current after ALTER GIT REPOSITORY ... FET
 )
 DST = "/tmp/suraksha_src"
 REQUIRED_MODULES = ('suraksha/store/batch.py', 'suraksha/store/snowflake.py')  # a source missing these is stale
-PROC_VERSION = "iter05-batch-pkgcheck"  # bump when the proc body changes; shows in the returned JSON
+PROC_VERSION = "iter06-batch-newrules"  # bump when the proc body changes; shows in the returned JSON
 _STMTS = [0]  # statements issued through the shim (returned as statements_issued)
 
 DEMO_TABLES = (  # synthetic demo workflow state only; registry + transactions are never touched

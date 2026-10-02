@@ -47,7 +47,7 @@ STAGES = (  # git clone first: always current after ALTER GIT REPOSITORY ... FET
 )
 DST = "/tmp/suraksha_src"
 REQUIRED_MODULES = ('suraksha/store/cached.py', 'suraksha/store/snowflake.py')  # a source missing these is stale
-PROC_VERSION = "iter05-pkgcheck"  # bump when the proc body changes; shows in the returned JSON
+PROC_VERSION = "iter06-newrules"  # bump when the proc body changes; shows in the returned JSON
 
 
 def ensure_pkg(session):
@@ -130,23 +130,31 @@ class _Conn:
 def record(store, ds, res):
     """Persist facts (for V_CONFIDENCE) and the Python verdict (for the parity query)."""
     inv, conf = res.investigation, res.confidence
-    if inv is not None and conf is not None:
-        same = inv.counterparty_company_id is not None and inv.counterparty_company_id == inv.borrower_id
-        own = any(p.edges and all(e.relation == "OWNS" for e in p.edges) for p in inv.paths)
+    if conf is not None:
+        fired = {e.rule_id for e in conf.evidence}
+        nvc, dm = "R_NO_VESSEL_CALL" in fired, "R_DOC_MISMATCH" in fired
+        if inv is not None:
+            same = inv.counterparty_company_id is not None and inv.counterparty_company_id == inv.borrower_id
+            own = any(p.edges and all(e.relation == "OWNS" for e in p.edges) for p in inv.paths)
+            vals = (res.request_id, inv.match.match_type.value, bool(same), len(inv.shared_ubos),
+                    len(inv.shared_directors), bool(own), len(inv.shared_addresses), len(inv.shared_phones),
+                    inv.timing_overlap_days, nvc, dm)
+        else:  # stand-alone document/cargo finding: no consortium match
+            vals = (res.request_id, None, False, 0, 0, False, 0, 0, None, nvc, dm)
         store._exec(
             "MERGE INTO SURAKSHA.CORE.INVESTIGATION_FACTS t USING (SELECT %s AS request_id, %s AS match_type, "
-            "%s AS same_borrower, %s AS u, %s AS d, %s AS own, %s AS a, %s AS ph, %s AS tm) s "
+            "%s AS same_borrower, %s AS u, %s AS d, %s AS own, %s AS a, %s AS ph, %s AS tm, %s AS nvc, "
+            "%s AS dm) s "
             "ON t.request_id = s.request_id "
             "WHEN MATCHED THEN UPDATE SET match_type = s.match_type, same_borrower = s.same_borrower, "
             "shared_ubo_count = s.u, shared_director_count = s.d, corp_ownership_link = s.own, "
-            "shared_address_count = s.a, shared_phone_count = s.ph, timing_overlap_days = s.tm "
+            "shared_address_count = s.a, shared_phone_count = s.ph, timing_overlap_days = s.tm, "
+            "no_vessel_call = s.nvc, doc_mismatch = s.dm "
             "WHEN NOT MATCHED THEN INSERT (request_id, match_type, same_borrower, shared_ubo_count, "
             "shared_director_count, corp_ownership_link, shared_address_count, shared_phone_count, "
-            "timing_overlap_days) VALUES (s.request_id, s.match_type, s.same_borrower, s.u, s.d, s.own, "
-            "s.a, s.ph, s.tm)",
-            (res.request_id, inv.match.match_type.value, bool(same), len(inv.shared_ubos),
-             len(inv.shared_directors), bool(own), len(inv.shared_addresses), len(inv.shared_phones),
-             inv.timing_overlap_days))
+            "timing_overlap_days, no_vessel_call, doc_mismatch) VALUES (s.request_id, s.match_type, "
+            "s.same_borrower, s.u, s.d, s.own, s.a, s.ph, s.tm, s.nvc, s.dm)",
+            vals)
     store._exec(
         "MERGE INTO SURAKSHA.CORE.PIPELINE_RESULTS t USING (SELECT %s AS request_id, %s AS status, "
         "%s AS sc, %s AS band, PARSE_JSON(%s) AS rules, %s AS lbl, %s AS scn) s "

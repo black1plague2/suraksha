@@ -12,9 +12,12 @@ Registry row shapes (plain dicts; keys are exact column names):
   addresses     : address_id, line, city, country
   transactions  : txn_id, company_id, bank_id, txn_date (date), amount, currency, counterparty, txn_type
   policy_clauses: clause_id, section, title, text, tags (list[str])
+  vessel_calls  : vessel, voyage, port, arrived (date), departed (date)   (synthetic stand-in for Snowflake
+                  Marketplace AIS / port-call data; REGISTRY.VESSEL_CALLS)
 """
 from __future__ import annotations
 
+import re
 from typing import Any, Protocol
 
 from suraksha.models import (
@@ -25,6 +28,25 @@ from suraksha.models import (
     FinancingRequest,
     STRDraft,
 )
+
+
+def vessel_key(v: str | None) -> str:
+    """Comparable vessel name: upper-case alnum, a leading M/V / MV / MT prefix dropped.
+    SQL twin: UPPER(REGEXP_REPLACE(vessel, '[^A-Za-z0-9]', ''))  (stored names carry no prefix)."""
+    s = re.sub(r"\s+", " ", (v or "").upper()).strip()
+    s = re.sub(r"^(M\s*/\s*V|MV|M\.V\.|MT|M\s*/\s*T)\s+", "", s)
+    return re.sub(r"[^A-Z0-9]", "", s)
+
+
+def voyage_key(v: str | None) -> str:
+    """Comparable voyage: alnum upper, leading V/VOY/VOYAGE tag and leading zeros dropped (as fingerprint)."""
+    s = re.sub(r"[^A-Za-z0-9]", "", v or "").upper()
+    s = re.sub(r"^(VOYAGE|VOY|V)(?=\d)", "", s)
+    return s.lstrip("0") or s
+
+
+def port_key(p: str | None) -> str:
+    return re.sub(r"[^A-Z0-9]", "", (p or "").upper())
 
 
 class Store(Protocol):
@@ -47,6 +69,13 @@ class Store(Protocol):
     def corp_owned_by(self, company_id: str) -> list[dict[str, Any]]:
         """Rows where owner_company_id == company_id."""
     def get_address(self, address_id: str) -> dict[str, Any] | None: ...
+
+    def vessel_calls(self, vessel: str, voyage: str) -> list[dict[str, Any]]:
+        """Port-call rows for the vessel+voyage (names compared via `vessel_key` / `voyage_key`)."""
+    def has_vessel_call_feed(self) -> bool:
+        """False when no port-call data is loaded at all (then R_NO_VESSEL_CALL must not fire)."""
+    def vessel_in_feed(self, vessel: str) -> bool:
+        """True when the feed covers this vessel on ANY voyage. An unknown vessel is a data gap, not evidence."""
 
     # ---- bank-private data
     def transactions_for(self, company_id: str, bank_id: str | None = None) -> list[dict[str, Any]]: ...

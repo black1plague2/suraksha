@@ -35,7 +35,26 @@ def _edges(inv: Investigation) -> list[GraphEdge]:
     return [e for p in inv.paths for e in p.edges]
 
 
-def score(inv: Investigation, settings: Settings) -> ConfidenceResult:
+_DOC_RULE_ASKS = {
+    "R_NO_VESSEL_CALL": [
+        "Obtain carrier confirmation of the vessel call and the original B/L; verify loading with the port authority.",
+        "Arrange a physical inspection / collateral-manager confirmation that the cargo exists.",
+    ],
+    "R_DOC_MISMATCH": [
+        "Ask the borrower to explain the document discrepancy and provide amended, consistent documents.",
+        "Reconcile B/L, invoice, LC and warehouse receipt against the LC terms before any drawdown.",
+    ],
+}
+
+
+def _doc_asks(rule_ids: set[str]) -> list[str]:
+    return [a for rid in ("R_NO_VESSEL_CALL", "R_DOC_MISMATCH") if rid in rule_ids for a in _DOC_RULE_ASKS[rid]]
+
+
+def score(inv: Investigation, settings: Settings, extra_evidence: list[Evidence] | None = None,
+          extra_missing: list[str] | None = None) -> ConfidenceResult:
+    """Consortium-match scoring. `extra_evidence` = evidence from investigator.document_checks (physical-cargo /
+    cross-document rules); it is folded into the same weighted sum. `extra_missing` = investigator.document_gaps."""
     w = RULE_WEIGHTS
     ev: list[Evidence] = []
     edges = _edges(inv)
@@ -91,6 +110,9 @@ def score(inv: Investigation, settings: Settings) -> ConfidenceResult:
         add("R_TIMING_OVERLAP", f"Second pledge {t} day(s) after the first, within the "
             f"{settings.timing_window_days}-day window.", [m.citation])
 
+    for e in extra_evidence or []:
+        ev.append(Evidence(e.rule_id, e.description, w[e.rule_id], _dedupe(list(e.citations))))
+
     # 4 dp so Python and sql/04_rules.sql (exact decimals) agree at the threshold boundary
     total = round(min(1.0, sum(e.weight for e in ev)), 4)
     band = ConfidenceBand.HIGH if total >= settings.confidence_threshold else ConfidenceBand.LOW
@@ -109,6 +131,8 @@ def score(inv: Investigation, settings: Settings) -> ConfidenceResult:
         if "R_TIMING_OVERLAP" not in fired and inv.timing_overlap_days is not None:
             missing.append("Verify pledge and disbursement dates with the other bank "
                            f"(gap of {inv.timing_overlap_days} days exceeds {settings.timing_window_days}).")
+        missing += _doc_asks(fired)
+        missing += [g for g in (extra_missing or []) if g not in missing]
         if not missing:
             missing.append("Seek analyst review of the cargo documents for additional corroboration.")
 
@@ -116,3 +140,25 @@ def score(inv: Investigation, settings: Settings) -> ConfidenceResult:
         "request_id": inv.request_id, "rules": [e.rule_id for e in ev], "score": total, "band": band.value,
         "missing": len(missing)}})
     return ConfidenceResult(inv.request_id, total, band, ev, missing)
+
+
+def score_standalone(evidence: list[Evidence], settings: Settings, *, request_id: str = "",
+                     gaps: list[str] | None = None) -> ConfidenceResult:
+    """Score document/cargo evidence when there is NO consortium match.
+
+    The score is the sum of the fired rules' weights (4 dp), but the band is ALWAYS LOW: without a consortium
+    match the system never auto-drafts an STR. The caller (pipeline) maps `score >=
+    settings.standalone_review_threshold` to NEED_MORE_EVIDENCE and anything lower to CLEAR.
+    """
+    w = RULE_WEIGHTS
+    ev = [Evidence(e.rule_id, e.description, w[e.rule_id], _dedupe(list(e.citations))) for e in evidence]
+    total = round(min(1.0, sum(e.weight for e in ev)), 4)
+    fired = {e.rule_id for e in ev}
+    missing = _doc_asks(fired)
+    if fired:
+        missing.append("No consortium match: confirm with other consortium banks that this cargo has not been "
+                       "pledged elsewhere under altered particulars.")
+        missing += [g for g in (gaps or []) if g not in missing]
+    log.info("confidence_standalone", extra={"ctx": {
+        "request_id": request_id, "rules": sorted(fired), "score": total}})
+    return ConfidenceResult(request_id, total, ConfidenceBand.LOW, ev, missing)

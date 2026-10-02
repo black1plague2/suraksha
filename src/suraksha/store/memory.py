@@ -4,6 +4,7 @@ from __future__ import annotations
 import copy
 from typing import Any
 
+from suraksha.store.base import vessel_key, voyage_key
 from suraksha.models import (
     AuditRecord,
     Case,
@@ -24,6 +25,7 @@ class MemoryStore:
         self.addresses: dict[str, dict[str, Any]] = {}
         self.transactions: list[dict[str, Any]] = []
         self.clauses: list[dict[str, Any]] = []
+        self.vessel_call_rows: list[dict[str, Any]] = []
         self.requests: dict[str, FinancingRequest] = {}
         self.fields: dict[str, ExtractedFields] = {}
         self.reports: dict[str, STRDraft] = {}
@@ -40,6 +42,7 @@ class MemoryStore:
         addresses: list[dict[str, Any]],
         transactions: list[dict[str, Any]],
         policy_clauses: list[dict[str, Any]],
+        vessel_calls: list[dict[str, Any]] | None = None,
     ) -> None:
         self.companies.update({c["company_id"]: c for c in companies})
         self.persons.update({p["person_id"]: p for p in persons})
@@ -48,6 +51,7 @@ class MemoryStore:
         self.addresses.update({a["address_id"]: a for a in addresses})
         self.transactions.extend(transactions)
         self.clauses.extend(policy_clauses)
+        self.vessel_call_rows.extend(vessel_calls or [])
 
     # ---- consortium
     def add_consortium_entry(self, entry: ConsortiumEntry) -> None:
@@ -93,6 +97,18 @@ class MemoryStore:
 
     def get_address(self, address_id: str) -> dict[str, Any] | None:
         return self.addresses.get(address_id)
+
+    def vessel_calls(self, vessel: str, voyage: str) -> list[dict[str, Any]]:
+        vk, yk = vessel_key(vessel), voyage_key(voyage)
+        return [r for r in self.vessel_call_rows
+                if vessel_key(r["vessel"]) == vk and voyage_key(r["voyage"]) == yk]
+
+    def has_vessel_call_feed(self) -> bool:
+        return bool(self.vessel_call_rows)
+
+    def vessel_in_feed(self, vessel: str) -> bool:
+        vk = vessel_key(vessel)
+        return any(vessel_key(r["vessel"]) == vk for r in self.vessel_call_rows)
 
     # ---- bank-private
     def transactions_for(self, company_id: str, bank_id: str | None = None) -> list[dict[str, Any]]:

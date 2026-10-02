@@ -49,11 +49,11 @@ STAGES = (  # git clone first: always current after ALTER GIT REPOSITORY ... FET
 )
 DST = "/tmp/suraksha_src"
 REQUIRED_MODULES = ('suraksha/synth/generator.py', 'suraksha/store/snowflake.py')  # a source missing these is stale
-PROC_VERSION = "iter05-pkgcheck"  # bump when the proc body changes; shows in the returned JSON
+PROC_VERSION = "iter06-newrules"  # bump when the proc body changes; shows in the returned JSON
 
 TRUNCATE_TABLES = [
     "SURAKSHA.REGISTRY.ADDRESSES", "SURAKSHA.REGISTRY.COMPANIES", "SURAKSHA.REGISTRY.PERSONS",
-    "SURAKSHA.REGISTRY.ROLES", "SURAKSHA.REGISTRY.CORP_OWNERS", "SURAKSHA.CORE.POLICY_CLAUSES",
+    "SURAKSHA.REGISTRY.ROLES", "SURAKSHA.REGISTRY.CORP_OWNERS", "SURAKSHA.REGISTRY.VESSEL_CALLS", "SURAKSHA.CORE.POLICY_CLAUSES",
     "SURAKSHA.BANK_A.TRANSACTIONS", "SURAKSHA.BANK_B.TRANSACTIONS", "SURAKSHA.BANK_C.TRANSACTIONS",
 ]
 
@@ -147,12 +147,12 @@ def run(session, seed):
     for t in TRUNCATE_TABLES:  # constants only
         session.sql("TRUNCATE TABLE IF EXISTS " + t).collect()
     store.load_registry(ds.companies, ds.persons, ds.roles, ds.corp_owners, ds.addresses,
-                        ds.transactions, ds.policy_clauses)
+                        ds.transactions, ds.policy_clauses, ds.vessel_calls)
     return json.dumps({
         "seed": int(seed), "package_from": how, "proc_version": PROC_VERSION,
         "companies": len(ds.companies), "persons": len(ds.persons), "roles": len(ds.roles),
         "corp_owners": len(ds.corp_owners), "addresses": len(ds.addresses),
-        "transactions": len(ds.transactions), "policy_clauses": len(ds.policy_clauses),
+        "transactions": len(ds.transactions), "policy_clauses": len(ds.policy_clauses), "vessel_calls": len(ds.vessel_calls),
         "requests_generated_not_loaded": len(ds.requests),
     })
 $$;

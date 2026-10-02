@@ -20,7 +20,7 @@ log = get_logger(__name__)
 
 _REGISTRY_READS = (
     "get_company", "list_companies", "get_person", "roles_for_company", "roles_for_person",
-    "corp_owners_of", "corp_owned_by", "get_address",
+    "corp_owners_of", "corp_owned_by", "get_address", "vessel_calls", "has_vessel_call_feed", "vessel_in_feed",
 )
 
 
@@ -30,7 +30,7 @@ class RegistryCachedStore:
         snap = registry if registry is not None else self._snapshot(inner)
         self._reg = MemoryStore()
         self._reg.load_registry(snap["companies"], snap["persons"], snap["roles"], snap["corp_owners"],
-                                snap["addresses"], [], [])
+                                snap["addresses"], [], [], snap.get("vessel_calls", []))
         self._last_audit: AuditRecord | None = None
         self._audit_loaded = False
         log.info("registry_snapshot", extra={"ctx": {k: len(v) for k, v in snap.items()}})

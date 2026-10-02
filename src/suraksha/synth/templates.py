@@ -210,18 +210,26 @@ def _date(d: date, n: Noise) -> str:
     return d.strftime("%d/%m/%Y") if n.date_fmt == "dmy" else d.isoformat()
 
 
-def _qty(data: DocData, n: Noise) -> str:
-    q = data.qty_mt * 1000 if n.qty_unit == "KG" else data.qty_mt
+def _qty(data: DocData, n: Noise, qty_mt: float | None = None) -> str:
+    base = data.qty_mt if qty_mt is None else qty_mt
+    q = base * 1000 if n.qty_unit == "KG" else base
     return f"{_num(q, n.qty_commas)} {n.qty_unit}"
 
 
-def render_documents(request_id: str, d: DocData, n: Noise, rng: random.Random) -> list[Document]:
+def render_documents(request_id: str, d: DocData, n: Noise, rng: random.Random,
+                     ov: dict | None = None) -> list[Document]:
+    """`ov` (optional, new-rules scenarios only) makes ONE document disagree with the others:
+    inv_qty_mt / wr_qty_mt (quantity on the invoice / warehouse receipt, in MT), lc_value (LC amount)."""
+    ov = ov or {}
     pick = (lambda opts: rng.choice(opts)) if n.aliases else (lambda opts: opts[0])
     value = _num(d.value, n.value_commas)
     goods = _txt(d.commodity, n)
     vessel = n.mv_prefix + _txt(d.vessel, n)
     pol, pod = _txt(d.pol, n), _txt(d.pod, n)
     qty = _qty(d, n)
+    inv_qty = _qty(d, n, ov.get("inv_qty_mt"))
+    wr_qty = _qty(d, n, ov.get("wr_qty_mt"))
+    lc_value = _num(ov["lc_value"], n.value_commas) if "lc_value" in ov else value
     sdate = _date(d.ship_date, n)
     lc_date = _date(d.ship_date + timedelta(days=21), n)
 
@@ -244,7 +252,7 @@ def render_documents(request_id: str, d: DocData, n: Noise, rng: random.Random) 
         f"Seller: {d.shipper}",
         f"Buyer: {d.consignee}",
         f"Goods: {goods}",
-        f"Quantity: {qty}",
+        f"Quantity: {inv_qty}",
         f"Total Value: {d.currency} {value}",
         f"B/L Ref: {d.bl}",
     ])
@@ -253,7 +261,7 @@ def render_documents(request_id: str, d: DocData, n: Noise, rng: random.Random) 
         f"LC No: {d.lc}",
         f"Applicant: {d.consignee}",
         f"Beneficiary: {d.shipper}",
-        f"Amount: {d.currency} {value}",
+        f"Amount: {d.currency} {lc_value}",
         f"Goods: {goods}",
         f"Port of Loading: {pol}",
         f"Port of Discharge: {pod}",
@@ -264,7 +272,7 @@ def render_documents(request_id: str, d: DocData, n: Noise, rng: random.Random) 
         f"Receipt No: {d.wr}",
         f"Depositor: {d.depositor}",
         f"Commodity: {goods}",
-        f"Quantity: {qty}",
+        f"Quantity: {wr_qty}",
         f"Ex Vessel: {_txt(d.vessel, n)} / {d.voyage}",
     ])
     return [

@@ -204,3 +204,208 @@ def investigate(req: FinancingRequest, match: ConsortiumMatch, store: Store, set
 
 def describe_edge(e: GraphEdge) -> str:
     return f"{e.src} -{e.relation}-> {e.dst}"
+
+
+# =========================================================================== document / cargo checks
+# Two deterministic rule families that need NO consortium match (they can raise a request on their own):
+#   R_NO_VESSEL_CALL : physical-cargo check against REGISTRY.VESSEL_CALLS (synthetic stand-in for Snowflake
+#                      Marketplace AIS / port-call data)
+#   R_DOC_MISMATCH   : B/L vs invoice vs LC vs warehouse receipt consistency
+# `document_checks` returns fired Evidence; `document_gaps` returns analyst asks for checks that could not run.
+# Mirrored in SQL through INVESTIGATION_FACTS.no_vessel_call / doc_mismatch (sql/04).
+from datetime import timedelta  # noqa: E402
+
+from suraksha.agents import intake as _intake  # noqa: E402
+from suraksha.config import RULE_WEIGHTS  # noqa: E402
+from suraksha.models import DocType, Document, Evidence, ExtractedFields  # noqa: E402
+from suraksha.store.base import port_key  # noqa: E402
+
+
+def _dedupe_cites(cs: list[Citation]) -> list[Citation]:
+    seen, out = set(), []
+    for c in cs:
+        k = (c.kind, c.ref, c.page)
+        if k not in seen:
+            seen.add(k)
+            out.append(c)
+    return out
+
+
+def vessel_call_check(fields: ExtractedFields, store: Store, settings: Settings) -> Evidence | None:
+    """R_NO_VESSEL_CALL: no call of the B/L vessel+voyage at the port of loading within +-N days of the
+    shipment date. Fires only when vessel, voyage, port of loading and shipment date were all extracted and the
+    port-call feed is loaded; otherwise None (see `document_gaps`)."""
+    if not (fields.vessel and fields.voyage and fields.port_of_loading and fields.shipment_date):
+        return None
+    has_feed = getattr(store, "has_vessel_call_feed", None)
+    if has_feed is not None and not has_feed():
+        return None
+    win = timedelta(days=settings.vessel_call_window_days)
+    ship = fields.shipment_date
+    pol = port_key(fields.port_of_loading)
+    calls = store.vessel_calls(fields.vessel, fields.voyage)
+    in_feed = getattr(store, "vessel_in_feed", None)
+    if not calls and in_feed is not None and not in_feed(fields.vessel):
+        # Feed never saw this vessel at all: incomplete AIS coverage, not proof the cargo is fake (master, ITER-06).
+        return None  # -> document_gaps asks the analyst to verify with the carrier / AIS provider
+    for c in calls:
+        if port_key(c["port"]) == pol and c["arrived"] - win <= ship <= c["departed"] + win:
+            return None  # a matching call exists: cargo plausibly loaded
+    scope = (f"vessel {fields.vessel!r} voyage {fields.voyage!r}, port {fields.port_of_loading!r}, "
+             f"window {ship - win} .. {ship + win} (shipment date {ship}, +-{settings.vessel_call_window_days} days)")
+    if calls:
+        seen = "; ".join(f"{c['port']} {c['arrived']}..{c['departed']}" for c in calls)
+        desc = (f"No port call at the port of loading within +-{settings.vessel_call_window_days} days of the "
+                f"shipment date: the port-call feed lists the voyage only at other ports/dates ({seen}). "
+                "The cargo may not exist.")
+    else:
+        desc = ("No port call recorded for this vessel and voyage in the port-call feed "
+                f"(query scope: {scope}). The cargo may not exist.")
+    cites = [Citation(CitationKind.RULE, "R_NO_VESSEL_CALL", snippet=desc)]
+    for name in ("vessel", "voyage", "port_of_loading", "shipment_date"):
+        c = fields.sources.get(name)
+        if c is not None:
+            cites.append(c)
+    if calls:
+        for c in calls:
+            cites.append(Citation(CitationKind.REGISTRY, f"vessel_calls:{c['vessel']}/{c['voyage']}/{c['port']}",
+                                  snippet=f"{c['vessel']} {c['voyage']} at {c['port']}, arrived {c['arrived']}, "
+                                          f"departed {c['departed']}"))
+    else:
+        cites.append(Citation(CitationKind.REGISTRY, f"vessel_calls:{fields.vessel}/{fields.voyage}",
+                              snippet=f"0 rows for query scope: {scope}"))
+    return Evidence("R_NO_VESSEL_CALL", desc, RULE_WEIGHTS["R_NO_VESSEL_CALL"], _dedupe_cites(cites))
+
+
+# ---- cross-document consistency
+@dataclass
+class _DocLine:
+    doc: Document
+    page: int
+    line: str
+    value: float | str
+
+    @property
+    def cit(self) -> Citation:
+        return Citation(CitationKind.DOCUMENT, self.doc.doc_id, page=self.page, snippet=self.line)
+
+
+def _doc_quantity(doc: Document) -> _DocLine | None:
+    h = _intake._find(doc, _intake._LABELS[doc.doc_type]["quantity"])
+    if not h:
+        return None
+    m = _intake._QTY_RE.search(h.value)
+    if not m:
+        return None
+    try:
+        q, u = _intake.normalize_quantity(_intake._parse_num(m.group("num")), m.group("unit"))
+    except ValueError:
+        return None
+    return _DocLine(doc, h.page, h.line, q) if u == "MT" else None
+
+
+def _doc_commodity(doc: Document) -> _DocLine | None:
+    from suraksha.agents.fingerprint import canonical_commodity
+    h = _intake._find(doc, _intake._LABELS[doc.doc_type]["commodity"])
+    if not h:
+        return None
+    canon = canonical_commodity(_intake._clip_value(h.value))
+    return _DocLine(doc, h.page, h.line, canon) if canon else None
+
+
+def _doc_money(doc: Document) -> tuple[_DocLine, str] | None:
+    h = _intake._find(doc, _intake._LABELS[doc.doc_type]["value"])
+    mv = _intake._parse_money(h.value) if h else None
+    return (_DocLine(doc, h.page, h.line, mv[0]), mv[1]) if h and mv else None
+
+
+def _first(req: FinancingRequest, dt: DocType) -> Document | None:
+    return next((d for d in req.documents if d.doc_type == dt), None)
+
+
+def doc_mismatch_check(req: FinancingRequest, settings: Settings) -> Evidence | None:
+    """R_DOC_MISMATCH: quantity (> qty_tolerance after unit normalisation) between B/L, invoice and warehouse
+    receipt (this includes WR > B/L); commodity (different canonical code) across B/L/invoice/LC/WR; invoice
+    value above the LC amount by more than value_tolerance (same currency). Cites both conflicting lines."""
+    bl, inv = _first(req, DocType.BILL_OF_LADING), _first(req, DocType.INVOICE)
+    lc, wr = _first(req, DocType.LC), _first(req, DocType.WAREHOUSE_RECEIPT)
+    problems: list[str] = []
+    cites: list[Citation] = []
+
+    def both(a: _DocLine, b: _DocLine) -> None:
+        cites.extend([a.cit, b.cit])
+
+    # quantity
+    order = [DocType.BILL_OF_LADING, DocType.INVOICE, DocType.WAREHOUSE_RECEIPT]
+    docs = {DocType.BILL_OF_LADING: bl, DocType.INVOICE: inv, DocType.WAREHOUSE_RECEIPT: wr}
+    qs = {dt: _doc_quantity(d) for dt, d in docs.items() if d is not None}
+    qs = {k: v for k, v in qs.items() if v is not None}
+    for i, a in enumerate(order):
+        for b in order[i + 1:]:
+            if a in qs and b in qs:
+                x, y = qs[a], qs[b]
+                big = max(x.value, y.value)
+                if big > 0 and abs(x.value - y.value) / big > settings.qty_tolerance:
+                    extra = " (warehouse receipt exceeds the B/L quantity)" if (
+                        b == DocType.WAREHOUSE_RECEIPT and a == DocType.BILL_OF_LADING and y.value > x.value) else ""
+                    problems.append(f"quantity differs by more than {settings.qty_tolerance:.0%}: "
+                                    f"{a.value} {x.value:,g} MT vs {b.value} {y.value:,g} MT{extra}")
+                    both(x, y)
+    # commodity
+    cs = [(dt, _doc_commodity(d)) for dt, d in ((DocType.BILL_OF_LADING, bl), (DocType.INVOICE, inv),
+                                                  (DocType.LC, lc), (DocType.WAREHOUSE_RECEIPT, wr)) if d is not None]
+    cs = [(dt, c) for dt, c in cs if c is not None]
+    for i, (a, x) in enumerate(cs):
+        for b, y in cs[i + 1:]:
+            if x.value != y.value:
+                problems.append(f"commodity differs: {a.value} says {x.value}, {b.value} says {y.value}")
+                both(x, y)
+    # value: invoice vs LC
+    if inv is not None and lc is not None:
+        vi, vl = _doc_money(inv), _doc_money(lc)
+        if vi and vl and vi[1] == vl[1] and vl[0].value > 0 and \
+                vi[0].value > vl[0].value * (1 + settings.value_tolerance):
+            problems.append(f"invoice value {vi[1]} {vi[0].value:,g} exceeds the LC amount "
+                            f"{vl[1]} {vl[0].value:,g} by more than {settings.value_tolerance:.0%}")
+            both(vi[0], vl[0])
+    if not problems:
+        return None
+    desc = "Documents are inconsistent with each other: " + "; ".join(problems) + "."
+    return Evidence("R_DOC_MISMATCH", desc, RULE_WEIGHTS["R_DOC_MISMATCH"],
+                    _dedupe_cites([Citation(CitationKind.RULE, "R_DOC_MISMATCH", snippet=desc)] + cites))
+
+
+def document_checks(req: FinancingRequest, fields: ExtractedFields, store: Store, settings: Settings) -> list[Evidence]:
+    """Evidence from the physical-cargo and cross-document rules (empty = nothing fired)."""
+    out = [ev for ev in (vessel_call_check(fields, store, settings), doc_mismatch_check(req, settings))
+           if ev is not None]
+    if out:
+        log.info("document_checks_fired", extra={"ctx": {"request_id": req.request_id,
+                                                         "rules": [e.rule_id for e in out]}})
+    return out
+
+
+def document_gaps(req: FinancingRequest, fields: ExtractedFields, store: Store) -> list[str]:
+    """Analyst asks for the checks that could NOT run (missing data -> no rule fires, ask instead)."""
+    gaps = []
+    absent = [n for n, v in (("vessel", fields.vessel), ("voyage", fields.voyage),
+                             ("port of loading", fields.port_of_loading),
+                             ("shipment date", fields.shipment_date)) if not v]
+    if absent:
+        gaps.append("Physical-cargo check not run: " + ", ".join(absent) + " not extracted; obtain the original "
+                    "B/L and verify the vessel call with the port authority / AIS provider.")
+    else:
+        has_feed = getattr(store, "has_vessel_call_feed", None)
+        in_feed = getattr(store, "vessel_in_feed", None)
+        if has_feed is not None and not has_feed():
+            gaps.append("Physical-cargo check not run: no port-call (AIS) data is loaded; verify the vessel call "
+                        "with the port authority.")
+        elif in_feed is not None and not in_feed(fields.vessel):
+            gaps.append(f"Physical-cargo check inconclusive: vessel {fields.vessel!r} is not covered by the port-call "
+                        "feed; verify the voyage with the carrier or an AIS provider.")
+    present = sum(1 for dt in (DocType.BILL_OF_LADING, DocType.INVOICE, DocType.LC, DocType.WAREHOUSE_RECEIPT)
+                  if _first(req, dt) is not None)
+    if present < 2:
+        gaps.append("Cross-document check not run: fewer than two of B/L, invoice, LC and warehouse receipt "
+                    "were provided; request the missing documents.")
+    return gaps

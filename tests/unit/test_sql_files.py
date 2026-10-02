@@ -96,7 +96,7 @@ def test_06_deploy_order_and_files_exist():
     raw = (SQL_DIR / "06_git_repo.sql").read_text(encoding="utf-8")
     text = chr(10).join(l for l in raw.splitlines() if not l.lstrip().startswith("--"))
     refs = re.findall(r"EXECUTE IMMEDIATE FROM @SURAKSHA\.CORE\.SURAKSHA_REPO/branches/main/(sql/[\w.]+\.sql)", text)
-    assert [Path(r).name[:2] for r in refs] == ["00", "01", "02", "03", "04", "05", "07", "08", "09", "10", "11"]
+    assert [Path(r).name[:2] for r in refs] == ["00", "01", "02", "03", "04", "05", "07", "08", "09", "10", "11", "12"]
     for r in refs:
         assert (ROOT / r).is_file(), r
 
@@ -208,7 +208,7 @@ def test_11_run_pipeline_batch_static():
     code = _code(name)
     assert "CREATE OR REPLACE PROCEDURE SURAKSHA.CORE.RUN_PIPELINE_BATCH(SEED INT, RESET BOOLEAN)" in code
     assert "EXECUTE AS OWNER" in code and "EXECUTE AS CALLER" not in code
-    assert "RUNTIME_VERSION = '3.12'" in code and 'PROC_VERSION = "iter05-batch-pkgcheck"' in code
+    assert "RUNTIME_VERSION = '3.12'" in code and 'PROC_VERSION = "iter06-batch-newrules"' in code
     # granted to the admin role only (reset is destructive)
     grants = re.findall(r"GRANT\s+USAGE\s+ON\s+PROCEDURE\s+SURAKSHA\.CORE\.RUN_PIPELINE_BATCH[^;]*;", code)
     assert grants and all(g.rstrip(";").endswith("TO ROLE SURAKSHA_ADMIN") for g in grants)

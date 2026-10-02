@@ -75,6 +75,7 @@ EXECUTE IMMEDIATE FROM @SURAKSHA.CORE.SURAKSHA_REPO/branches/main/sql/08_run_pip
 EXECUTE IMMEDIATE FROM @SURAKSHA.CORE.SURAKSHA_REPO/branches/main/sql/09_streamlit.sql;
 EXECUTE IMMEDIATE FROM @SURAKSHA.CORE.SURAKSHA_REPO/branches/main/sql/10_decide_case.sql;
 EXECUTE IMMEDIATE FROM @SURAKSHA.CORE.SURAKSHA_REPO/branches/main/sql/11_run_pipeline_batch.sql;
+EXECUTE IMMEDIATE FROM @SURAKSHA.CORE.SURAKSHA_REPO/branches/main/sql/12_streaming.sql;
 
 -- ---- D. refresh later (after pushing new commits): run ONLY the FETCH, then re-run
 --         whichever sql/NN file changed (each is idempotent).

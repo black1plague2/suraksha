@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import random
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
 from typing import Any
 
@@ -35,6 +35,11 @@ DECOY_SCENARIOS = [
     "decoy_same_bank_refinance",
 ]
 # link recipes between two borrowers (every recipe is <= 3 graph hops)
+# ITER-06 scenarios: physical-cargo (vessel-call) and cross-document rules. They need no consortium match.
+NEW_RULE_SCENARIOS = [
+    "phantom_no_vessel_call", "doc_mismatch_qty", "doc_mismatch_value",
+    "decoy_minor_rounding", "decoy_vessel_call_edge",
+]
 LINK_KINDS: list[tuple[str, ...]] = [
     ("ubo",), ("director",), ("address", "phone"), ("holding",), ("chain3",),
     ("ubo_holding",), ("director", "address"), ("ubo", "phone"),
@@ -54,6 +59,7 @@ class SynthDataset:
     labels: dict[str, bool]
     scenarios: dict[str, str]
     borrower_reg_no: dict[str, str]
+    vessel_calls: list[dict] = field(default_factory=list)   # REGISTRY.VESSEL_CALLS stand-in (AIS / port calls)
 
 
 def band(qty_mt: float) -> int:
@@ -261,6 +267,8 @@ class _Draft:
     scenario: str
     label: bool
     advance: float
+    call_mode: str = "normal"            # vessel-call feed: normal | none (phantom) | far (wrong date) | edge (8d off)
+    ov: dict = field(default_factory=dict)   # per-document overrides for render_documents (doc mismatch)
 
 
 class _Gen:
@@ -419,6 +427,75 @@ class _Gen:
         else:  # decoy_same_bank_refinance: same cargo re-presented at the SAME bank
             self.add(t1, bx, a, data, scn, False)
 
+    # -- ITER-06: phantom cargo / cross-document scenarios (own rng: existing scenarios stay byte-identical)
+    def new_rule_case(self, scn: str, idx: int) -> None:
+        r = self.rng
+        b = self.fresh()
+        data = self.cargo(b)
+        at = BASE_DT + timedelta(days=r.randint(125, 170), hours=r.randint(8, 18), minutes=r.randint(0, 59))
+        label, mode, ov = True, "normal", {}
+        if scn == "phantom_no_vessel_call":
+            mode = "none" if idx % 2 == 0 else "far"
+        elif scn == "doc_mismatch_qty":
+            if idx % 2 == 0:
+                ov = {"inv_qty_mt": round(data.qty_mt * r.choice([1.08, 1.15, 0.9]), 1)}
+            else:
+                ov = {"wr_qty_mt": round(data.qty_mt * r.choice([1.10, 1.25]), 1)}   # WR > B/L
+        elif scn == "doc_mismatch_value":
+            ov = {"lc_value": int(data.value * r.choice([0.80, 0.85, 0.90]))}         # invoice > LC by >5%
+        elif scn == "decoy_minor_rounding":
+            label = False
+            ov = {"inv_qty_mt": round(data.qty_mt * (1.012 if idx % 2 == 0 else 0.988), 1),
+                  "lc_value": int(data.value * 0.97)}                                   # 1.2% qty, 3.1% value
+        else:  # decoy_vessel_call_edge
+            label, mode = False, "edge"
+        d = self.add(at, r.choice(T.BANKS), b, data, scn, label, "none")
+        d.call_mode, d.ov = mode, ov
+
+    def vessel_calls(self) -> list[dict]:
+        """One POL call (+ a POD call) per legitimate cargo, deterministic from the shipment date."""
+        rows: list[dict] = []
+        seen: set[tuple] = set()
+        for d in self.drafts:
+            x = d.data
+            if d.call_mode == "none":
+                continue
+            ship = x.ship_date
+            if d.call_mode == "far":
+                legs = [(x.pol, ship + timedelta(days=25), ship + timedelta(days=27))]   # wrong date: > 10d off
+            else:
+                pol = {"normal": (ship - timedelta(days=2), ship),
+                       "edge": (ship + timedelta(days=8), ship + timedelta(days=9))}[d.call_mode]   # edge: 8d off
+                legs = [(x.pol, *pol), (x.pod, ship + timedelta(days=12), ship + timedelta(days=14))]
+            for port, arr, dep in legs:
+                k = (x.vessel, x.voyage, port)
+                if k not in seen:
+                    seen.add(k)
+                    rows.append({"vessel": x.vessel, "voyage": x.voyage, "port": port, "arrived": arr,
+                                 "departed": dep})
+        rows.sort(key=lambda c: (c["vessel"], c["voyage"], c["arrived"], c["port"]))
+        return rows
+
+    def extra_transactions(self, drafts: list[_Draft], start_id: int, rng: random.Random) -> list[dict]:
+        """Background transactions for the ITER-06 borrowers (ids continue after the existing ones)."""
+        by_id = {c["company_id"]: c for c in self.reg.companies}
+        counterparties = [x.replace("  ", " ") for x in T.BUYER_NAMES]
+        start, end = date(2025, 9, 1), date(2026, 5, 30)
+        span = (end - start).days
+        rows = []
+        for d in drafts:
+            c = by_id[d.borrower["company_id"]]
+            cur = "INR" if c["country"] == "IN" else "USD"
+            scale = 1_000_000 if cur == "INR" else 20_000
+            for _ in range(rng.randint(14, 30)):
+                rows.append({"txn_id": f"TXN-{start_id + len(rows):06d}", "company_id": c["company_id"],
+                             "bank_id": d.bank, "txn_date": start + timedelta(days=rng.randint(0, span)),
+                             "amount": round(rng.uniform(0.3, 25) * scale, 2), "currency": cur,
+                             "counterparty": rng.choice(counterparties),
+                             "txn_type": rng.choice(["TT_RECEIPT", "TT_PAYMENT", "LC_PAYMENT", "TRADE_SETTLEMENT",
+                                                     "CHEQUE"])})
+        return rows
+
     # -- transactions
     def transactions(self) -> list[dict]:
         r = self.rng
@@ -474,7 +551,9 @@ class _Gen:
 
 
 # --------------------------------------------------------------------------- public API
-def generate(seed: int = 42, n_clean: int = 60, n_dup: int = 30, n_decoy: int = 20) -> SynthDataset:
+def generate(seed: int = 42, n_clean: int = 60, n_dup: int = 30, n_decoy: int = 20,
+             n_phantom: int = 5, n_doc_qty: int = 4, n_doc_value: int = 4,
+             n_decoy_rounding: int = 3, n_decoy_edge: int = 3) -> SynthDataset:
     g = _Gen(seed)
     pool = g.reg.add_background(max(100, int(n_clean * 1.7)))
 
@@ -488,6 +567,16 @@ def generate(seed: int = 42, n_clean: int = 60, n_dup: int = 30, n_decoy: int = 
     for _ in range(n_hard):
         g.decoy_case("decoy_hard_same_voyage_same_qty", hard=True)
 
+    # ITER-06 scenarios use their own rng and are generated AFTER everything above, with request times after all
+    # existing ones, so existing requests / ids / documents are unchanged.
+    n_old = len(g.drafts)
+    txns = g.transactions()
+    g.rng = g.reg.rng = random.Random(f"{seed}:newrules")
+    for scn, n in zip(NEW_RULE_SCENARIOS, (n_phantom, n_doc_qty, n_doc_value, n_decoy_rounding, n_decoy_edge)):
+        for i in range(n):
+            g.new_rule_case(scn, i)
+    txns += g.extra_transactions(g.drafts[n_old:], len(txns) + 1, g.rng)
+
     order = sorted(g.drafts, key=lambda d: (d.at, d.seq))
     requests: list[FinancingRequest] = []
     labels: dict[str, bool] = {}
@@ -495,20 +584,20 @@ def generate(seed: int = 42, n_clean: int = 60, n_dup: int = 30, n_decoy: int = 
     for i, d in enumerate(order, 1):
         rid = f"REQ-{i:05d}"
         rrng = random.Random(f"{seed}:{rid}")
-        docs = T.render_documents(rid, d.data, d.noise, rrng)
+        docs = T.render_documents(rid, d.data, d.noise, rrng, d.ov)
         amount = round(d.data.value * d.advance, -2)
         requests.append(FinancingRequest(rid, d.bank, d.borrower["company_id"], float(amount),
                                          d.data.currency, d.at, docs))
         labels[rid] = d.label
         scenarios[rid] = d.scenario
 
-    txns = g.transactions()
     reg = g.reg
     ds = SynthDataset(
         companies=reg.companies, persons=reg.persons, roles=reg.roles, corp_owners=reg.corp,
         addresses=reg.addresses, transactions=txns, policy_clauses=[dict(c) for c in T.POLICY_CLAUSES],
         requests=requests, labels=labels, scenarios=scenarios,
         borrower_reg_no={c["company_id"]: c["reg_no"] for c in reg.companies},
+        vessel_calls=g.vessel_calls(),
     )
     counts: dict[str, int] = {}
     for s in scenarios.values():
@@ -521,5 +610,6 @@ def generate(seed: int = 42, n_clean: int = 60, n_dup: int = 30, n_decoy: int = 
 def load_into(store, ds: SynthDataset) -> None:
     """Load the registry, transactions and policy clauses into a Store."""
     store.load_registry(ds.companies, ds.persons, ds.roles, ds.corp_owners, ds.addresses,
-                        ds.transactions, ds.policy_clauses)
-    log.info("synth_loaded", extra={"ctx": {"companies": len(ds.companies), "transactions": len(ds.transactions)}})
+                        ds.transactions, ds.policy_clauses, ds.vessel_calls)
+    log.info("synth_loaded", extra={"ctx": {"companies": len(ds.companies), "transactions": len(ds.transactions),
+                                              "vessel_calls": len(ds.vessel_calls)}})

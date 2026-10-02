@@ -39,7 +39,7 @@ def test_cached_store_same_results_fewer_calls():
     inner = MemoryStore(); load_into(inner, ds)
     counted = Counting(inner)
     snap = {"companies": ds.companies, "persons": ds.persons, "roles": ds.roles,
-            "corp_owners": ds.corp_owners, "addresses": ds.addresses}
+            "corp_owners": ds.corp_owners, "addresses": ds.addresses, "vessel_calls": ds.vessel_calls}
     cached, app = _run(RegistryCachedStore(counted, registry=snap), ds)
 
     assert cached == base

@@ -120,3 +120,24 @@ CALL SURAKSHA.CORE.RUN_PIPELINE_BATCH(42, FALSE);   -- append only; errors "alre
 - **RESET = TRUE is destructive and demo-only**: deletes all rows of bank REQUESTS, REQUEST_FIELDS, REPORTS, CASES, PIPELINE_RESULTS, INVESTIGATION_FACTS, CONSORTIUM.LEDGER and AUDIT_LOG (synthetic data; registry and transactions untouched). The append-only rules bind the app role, not the owner; the reset exists so the demo is repeatable. Never use on real data.
 - After a run the section 4 TEST queries apply unchanged (parity query, audit verify: `V_AUDIT_VERIFY_SUMMARY` checks the whole chain).
 - Verify live (owner's-rights docs list no `USE` and "no LIST in JavaScript/Scripting handlers"; Python is not listed): `LIST` + `session.file.get` for package loading, `session.connection` cursor, ~1,500-bind multi-row `INSERT ... SELECT ... UNION ALL` statements, statement-size limits on the 50-row requests chunks.
+
+## 7. Near-real-time screening (ITER-06, sql/12)
+A new financing request is screened within about a minute of arriving, without re-running the batch: bank -> `SUBMIT_REQUEST` -> `CORE.REQUEST_INBOX` -> APPEND_ONLY stream -> `SCREEN_INBOX_TASK` (every 1 MINUTE, only when `SYSTEM$STREAM_HAS_DATA`) -> `SCREEN_INBOX()` -> ledger, reports, cases, audit, `PIPELINE_RESULTS`.
+```sql
+USE ROLE SURAKSHA_ADMIN;  USE WAREHOUSE SURAKSHA_WH;
+-- prerequisite: CALL LOAD_SYNTH(42); CALL RUN_PIPELINE_BATCH(42, TRUE);   (the seed-42 consortium must exist)
+CALL SURAKSHA.CORE.SUBMIT_DEMO_DUPLICATE('BANK_A');   -- re-pledges a cargo already in the ledger from a linked shell borrower
+-- ... up to ~1 minute later (or run CALL SURAKSHA.CORE.SCREEN_INBOX(); to skip the wait):
+SELECT inbox_id, bank_id, status, result_status, screened_at, error FROM SURAKSHA.CORE.REQUEST_INBOX ORDER BY submitted_at DESC;
+SELECT * FROM SURAKSHA.CORE.PIPELINE_RESULTS WHERE request_id LIKE 'LIVE-%';   -- PENDING_APPROVAL
+SELECT case_id, status FROM SURAKSHA.CORE.CASES WHERE request_id LIKE 'LIVE-%';  -- case + cited STR awaiting a named officer
+SELECT * FROM SURAKSHA.CORE.V_AUDIT_VERIFY_SUMMARY;                              -- chain_intact = TRUE (continues the stored chain)
+CALL SURAKSHA.CORE.SUBMIT_DEMO_CLEAN('BANK_A');                                  -- screens CLEAR (same-bank re-presentation)
+SELECT * FROM TABLE(INFORMATION_SCHEMA.TASK_HISTORY(TASK_NAME => 'SCREEN_INBOX_TASK')) ORDER BY scheduled_time DESC;
+```
+- **Real bank intake** is `CALL SURAKSHA.CORE.SUBMIT_REQUEST('BANK_A', PARSE_JSON('{"request_id":..., "borrower_id":..., "amount":..., "currency":..., "submitted_at":..., "documents":[{"doc_id","doc_type","text","pages"}]}'))`; granted to SURAKSHA_APP. The inbox is read-only for the app (SELECT only).
+- **Cost control (trial account).** The task is resumed at the end of sql/12 and checks the stream every minute (cloud services only; the warehouse starts only when there is data). Pause it when not demoing: `ALTER TASK SURAKSHA.CORE.SCREEN_INBOX_TASK SUSPEND;` and resume with `RESUME`. `ACCOUNTADMIN` must have run `GRANT EXECUTE TASK ON ACCOUNT TO ROLE SURAKSHA_ADMIN` (done at the top of sql/12).
+- **What it costs per pass.** About 25 statements (1 stream consume, 1 fetch, 11 reads, ~9 bulk INSERTs, 1 bulk UPDATE; ~12 s at 0.5 s each) whatever the batch size, instead of ~11 statements per request on the per-request path. The audit chain continues the stored chain.
+- **Never loses a row.** `REQUEST_INBOX.status` (NEW / SCREENED / ERROR + `error`) is the source of truth; the stream only wakes the task. A malformed request, unknown bank/borrower or duplicate request id becomes ERROR with a message; a request whose ledger pledge already exists is marked SCREENED with its earlier status. If a run dies after the stream was consumed, call `SCREEN_INBOX()` (or submit anything) to pick the NEW rows up.
+- **Trust model.** `SCREEN_INBOX` is `EXECUTE AS OWNER` (SURAKSHA_ADMIN owns the ledger), admin-only like `RUN_PIPELINE_BATCH`; `SUBMIT_REQUEST` validates the bank id (BANK_A/B/C) but, with owner's rights, cannot bind it to the calling bank role.
+- Verify live: `CREATE STREAM ... APPEND_ONLY`, `CREATE TASK ... WHEN SYSTEM$STREAM_HAS_DATA` + `GRANT EXECUTE TASK`, the `INSERT ... SELECT FROM <stream>` consume inside an owner's-rights Python proc, `OBJECT_INSERT(:REQUEST::OBJECT, ...)` in SUBMIT_REQUEST, nested `CALL` of SUBMIT_REQUEST from SUBMIT_DEMO, a bound `PARSE_JSON(?)` in `session.sql(params=...)`.

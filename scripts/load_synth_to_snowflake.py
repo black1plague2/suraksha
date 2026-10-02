@@ -20,7 +20,8 @@ log = get_logger("load_synth")
 
 TRUNCATE_TABLES = [
     "SURAKSHA.REGISTRY.ADDRESSES", "SURAKSHA.REGISTRY.COMPANIES", "SURAKSHA.REGISTRY.PERSONS",
-    "SURAKSHA.REGISTRY.ROLES", "SURAKSHA.REGISTRY.CORP_OWNERS", "SURAKSHA.CORE.POLICY_CLAUSES",
+    "SURAKSHA.REGISTRY.ROLES", "SURAKSHA.REGISTRY.CORP_OWNERS", "SURAKSHA.REGISTRY.VESSEL_CALLS",
+    "SURAKSHA.CORE.POLICY_CLAUSES",
     "SURAKSHA.BANK_A.TRANSACTIONS", "SURAKSHA.BANK_B.TRANSACTIONS", "SURAKSHA.BANK_C.TRANSACTIONS",
 ]
 
@@ -43,12 +44,14 @@ def main(argv: list[str] | None = None) -> int:
                 store._exec(f"TRUNCATE TABLE IF EXISTS {t}")
             log.info("truncated", extra={"ctx": {"tables": len(TRUNCATE_TABLES)}})
         store.load_registry(
-            ds.companies, ds.persons, ds.roles, ds.corp_owners, ds.addresses, ds.transactions, ds.policy_clauses
+            ds.companies, ds.persons, ds.roles, ds.corp_owners, ds.addresses, ds.transactions, ds.policy_clauses,
+            ds.vessel_calls,
         )
         print(
             f"loaded: {len(ds.companies)} companies, {len(ds.persons)} persons, {len(ds.roles)} roles, "
             f"{len(ds.corp_owners)} corp_owners, {len(ds.addresses)} addresses, "
-            f"{len(ds.transactions)} transactions, {len(ds.policy_clauses)} policy clauses"
+            f"{len(ds.transactions)} transactions, {len(ds.policy_clauses)} policy clauses, "
+            f"{len(ds.vessel_calls)} vessel calls"
         )
     finally:
         store.close()

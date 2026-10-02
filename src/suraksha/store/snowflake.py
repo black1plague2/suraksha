@@ -39,6 +39,7 @@ from suraksha.models import (
     STRDraft,
     to_dict,
 )
+from suraksha.store.base import vessel_key, voyage_key
 
 log = get_logger(__name__)
 
@@ -51,6 +52,7 @@ T_PERSONS = f"{DB}.REGISTRY.PERSONS"
 T_ROLES = f"{DB}.REGISTRY.ROLES"
 T_CORP_OWNERS = f"{DB}.REGISTRY.CORP_OWNERS"
 T_ADDRESSES = f"{DB}.REGISTRY.ADDRESSES"
+T_VESSEL_CALLS = f"{DB}.REGISTRY.VESSEL_CALLS"
 T_POLICY = f"{DB}.CORE.POLICY_CLAUSES"
 T_FIELDS = f"{DB}.CORE.REQUEST_FIELDS"
 T_REPORTS = f"{DB}.CORE.REPORTS"
@@ -61,6 +63,7 @@ V_LEDGER = f"{DB}.CONSORTIUM.V_SHARED_LEDGER"
 PLEDGE_PROCS = {b: f"{DB}.CONSORTIUM.SP_PLEDGE_{b}" for b in BANKS}
 
 _COMPANY_COLS = "company_id, name, reg_no, address_id, phone, incorporated, country"
+_CALL_COLS = "vessel, voyage, port, arrived, departed"
 _TXN_COLS = "txn_id, company_id, bank_id, txn_date, amount, currency, counterparty, txn_type"
 _ENTRY_COLS = "entry_id, bank_id, keys, qty_band, borrower_token, pledged_at"
 _CASE_COLS = "case_id, request_id, report_id, status, hold_recommended, decided_by, decided_at, reason"
@@ -448,14 +451,33 @@ class SnowflakeStore:
     def get_address(self, address_id: str) -> dict[str, Any] | None:
         return self._one(f"SELECT address_id, line, city, country FROM {T_ADDRESSES} WHERE address_id = %s", (address_id,))
 
+    def vessel_calls(self, vessel: str, voyage: str) -> list[dict[str, Any]]:
+        """Port calls of the vessel (name key matched in SQL), narrowed to the voyage key in Python."""
+        rows = self._query(
+            f"SELECT {_CALL_COLS} FROM {T_VESSEL_CALLS} "
+            "WHERE UPPER(REGEXP_REPLACE(vessel, '[^A-Za-z0-9]', '')) = %s ORDER BY arrived, port",
+            (vessel_key(vessel),),
+        )
+        yk = voyage_key(voyage)
+        return [r for r in rows if voyage_key(r["voyage"]) == yk]
+
+    def has_vessel_call_feed(self) -> bool:
+        return self._one(f"SELECT vessel FROM {T_VESSEL_CALLS} LIMIT 1") is not None
+
+    def vessel_in_feed(self, vessel: str) -> bool:
+        return self._one(
+            f"SELECT vessel FROM {T_VESSEL_CALLS} WHERE UPPER(REGEXP_REPLACE(vessel, '[^A-Za-z0-9]', '')) = %s LIMIT 1",
+            (vessel_key(vessel),)) is not None
+
     def snapshot_registry(self) -> dict[str, list[dict[str, Any]]]:
-        """Whole registry in 5 SELECTs (for store.cached.RegistryCachedStore)."""
+        """Whole registry in 6 SELECTs (for store.cached.RegistryCachedStore; vessel_calls included)."""
         return {
             "companies": self._query(f"SELECT {_COMPANY_COLS} FROM {T_COMPANIES}"),
             "persons": self._query(f"SELECT person_id, name, id_hash FROM {T_PERSONS}"),
             "roles": self._query(f"SELECT company_id, person_id, role, pct FROM {T_ROLES}"),
             "corp_owners": self._query(f"SELECT owner_company_id, owned_company_id, pct FROM {T_CORP_OWNERS}"),
             "addresses": self._query(f"SELECT address_id, line, city, country FROM {T_ADDRESSES}"),
+            "vessel_calls": self._query(f"SELECT {_CALL_COLS} FROM {T_VESSEL_CALLS}"),
         }
 
     # ------------------------------------------------------------------ bank private
@@ -723,6 +745,7 @@ class SnowflakeStore:
         addresses: list[dict[str, Any]],
         transactions: list[dict[str, Any]],
         policy_clauses: list[dict[str, Any]],
+        vessel_calls: list[dict[str, Any]] | None = None,
     ) -> None:
         """Same signature as MemoryStore.load_registry (used by synth.load_into). Uses executemany."""
         def many(sql: str, rows: list[tuple]) -> None:
@@ -746,6 +769,11 @@ class SnowflakeStore:
              [(r["company_id"], r["person_id"], r["role"], r.get("pct")) for r in roles])
         many(f"INSERT INTO {T_CORP_OWNERS} (owner_company_id, owned_company_id, pct) VALUES (%s, %s, %s)",
              [(o["owner_company_id"], o["owned_company_id"], o.get("pct")) for o in corp_owners])
+        many(f"INSERT INTO {T_VESSEL_CALLS} ({_CALL_COLS}) VALUES (%s, %s, %s, %s, %s)",
+             [(c["vessel"], c["voyage"], c["port"],
+               _d(c["arrived"]) if isinstance(c.get("arrived"), date) else c.get("arrived"),
+               _d(c["departed"]) if isinstance(c.get("departed"), date) else c.get("departed"))
+              for c in (vessel_calls or [])])
         for bank in BANKS:
             many(
                 f"INSERT INTO {_bank_schema(bank)}.TRANSACTIONS ({_TXN_COLS}) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",

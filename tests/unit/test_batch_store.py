@@ -70,7 +70,8 @@ class BatchConn:
         if t == "AUDIT_LOG":
             return [self.audit_tail] if self.audit_tail else []
         return {"COMPANIES": ds.companies, "PERSONS": ds.persons, "ROLES": ds.roles, "CORP_OWNERS": ds.corp_owners,
-                "ADDRESSES": ds.addresses, "POLICY_CLAUSES": ds.policy_clauses}[t]
+                "ADDRESSES": ds.addresses, "POLICY_CLAUSES": ds.policy_clauses,
+                "VESSEL_CALLS": ds.vessel_calls}[t]
 
     @staticmethod
     def cell(d, col):

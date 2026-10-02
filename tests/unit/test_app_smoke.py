@@ -8,7 +8,7 @@ pytest.importorskip("pandas")
 from streamlit.testing.v1 import AppTest  # noqa: E402
 
 APP = str(Path(__file__).resolve().parents[2] / "app" / "streamlit_app.py")
-PAGES = ["Trade-ops analyst", "Investigator", "Compliance officer (MLRO)", "Risk head"]
+PAGES = ["Trade-ops analyst", "Investigator", "Compliance officer (MLRO)", "Risk head", "Policy what-if"]
 
 
 @pytest.mark.parametrize("page", PAGES)
@@ -24,6 +24,45 @@ def test_investigator_question():
     at.sidebar.radio(key="persona").set_value("Investigator").run()
     at.text_input(key="inv_q").set_value("directors of C0001").run()
     assert not at.exception, at.exception
+
+
+def _metric(at, label):
+    return next(m for m in at.metric if m.label == label)
+
+
+def test_whatif_defaults_match_pipeline_and_flips_on_threshold():
+    from suraksha.config import RULE_WEIGHTS
+
+    at = AppTest.from_file(APP, default_timeout=120).run()
+    at.sidebar.radio(key="persona").set_value("Policy what-if").run()
+    assert not at.exception, at.exception
+    assert len(at.slider) >= 1 + len(RULE_WEIGHTS)  # threshold + one per rule (incl. any new rules)
+    assert _metric(at, "Detection rate").delta.startswith("+0.0")  # defaults == current policy
+    assert any("governed approval" in c.value for c in at.caption)
+    at.slider(key="wi_thr").set_value(1.0).run()  # near-impossible bar: almost nothing escalates
+    assert not at.exception, at.exception
+    assert _metric(at, "Detection rate").delta.startswith("-")
+    at.button(key="wi_reset").click().run()
+    assert not at.exception, at.exception
+    assert _metric(at, "Detection rate").delta.startswith("+0.0")
+
+
+def test_mlro_evidence_chain_steps():
+    at = AppTest.from_file(APP, default_timeout=120).run()
+    at.sidebar.radio(key="persona").set_value("Compliance officer (MLRO)").run()
+    assert not at.exception, at.exception
+    labels = [e.label for e in at.expander]
+    for n in ("1 ·", "2 ·", "3 ·", "4 ·", "5 ·"):
+        assert any(l.startswith(n) for l in labels), labels
+    assert any("Decision & audit trail" in m.value for m in at.markdown)
+
+
+def test_risk_head_operational_metrics():
+    at = AppTest.from_file(APP, default_timeout=120).run()
+    at.sidebar.radio(key="persona").set_value("Risk head").run()
+    assert not at.exception, at.exception
+    assert any(m.label.startswith("Median time") for m in at.metric)
+    assert any(m.label.startswith("Analyst queue") for m in at.metric)
 
 
 def test_mlro_has_verify_button():
@@ -77,8 +116,8 @@ class _FakeSession:
         self.connection = _FakeDB(routes)
 
 
-_RES_COLS = ["REQUEST_ID", "STATUS", "PY_SCORE", "PY_BAND", "PY_RULES", "BANK_ID", "BORROWER_ID", "AMOUNT",
-             "CURRENCY", "SUBMITTED_AT", "COMMODITY"]
+_RES_COLS = ["REQUEST_ID", "STATUS", "PY_SCORE", "PY_BAND", "PY_RULES", "LABEL_DUPLICATE", "BANK_ID", "BORROWER_ID", "AMOUNT",
+             "CURRENCY", "SUBMITTED_AT", "COMMODITY", "LABEL_DUPLICATE"]
 _CASE_COLS = ["CASE_ID", "REQUEST_ID", "REPORT_ID", "STATUS", "HOLD_RECOMMENDED", "DECIDED_BY", "DECIDED_AT",
               "REASON"]
 
@@ -98,9 +137,9 @@ def _audit_rows():
 
 def _routes(results, decide=None):
     now = datetime(2026, 1, 5, 12, 0, 0)
-    res_rows = [("R1", "PENDING_APPROVAL", 0.91, "HIGH", '["R_EXACT_HASH"]', "BANK_A", "C0001", 1000.0, "INR",
+    res_rows = [("R1", "PENDING_APPROVAL", 0.91, "HIGH", '["R_EXACT_HASH"]', True, "BANK_A", "C0001", 1000.0, "INR",
                  now, "rice"),
-                ("R2", "CLEAR", None, None, "[]", "BANK_B", "C0002", 500.0, "INR", now, "wheat")]
+                ("R2", "CLEAR", None, None, "[]", False, "BANK_B", "C0002", 500.0, "INR", now, "wheat")]
     return [
         ("PIPELINE_RESULTS", (_RES_COLS, results and res_rows or [])),
         ("CORE.CASES", (_CASE_COLS, [("CASE-R1", "R1", "REP-R1", "PENDING_APPROVAL", False, None, None, None)]
@@ -151,6 +190,18 @@ def test_snowflake_pages_render(fake_snowflake, page):
     at.sidebar.radio(key="persona").set_value(page).run()
     assert not at.exception, at.exception
     assert "Backend: snowflake" in _sidebar_text(at)
+
+
+def test_snowflake_whatif_uses_label_column(fake_snowflake):
+    fake_snowflake(_FakeSession(_routes(results=True)))
+    at = AppTest.from_file(APP, default_timeout=120).run()
+    at.sidebar.radio(key="persona").set_value("Policy what-if").run()
+    assert not at.exception, at.exception
+    # R1 = labelled duplicate fired R_EXACT_HASH (0.5 < 0.6 threshold) -> LOW at defaults; R2 clean
+    assert _metric(at, "Detection rate").value == "0.0%"
+    at.slider(key="wi_thr").set_value(0.5).run()
+    assert _metric(at, "Detection rate").value == "100.0%"
+    assert not [i for i in at.info if "labels are not available" in i.value]
 
 
 def test_snowflake_verify_and_decide(fake_snowflake):

@@ -55,6 +55,8 @@ RULE_POLICY_TAGS: dict[str, frozenset[str]] = {
     "R_CORP_OWNERSHIP": frozenset({"related_party"}),
     "R_SAME_ADDRESS": frozenset({"related_party"}),
     "R_SAME_PHONE": frozenset({"related_party"}),
+    "R_NO_VESSEL_CALL": frozenset({"collateral"}),
+    "R_DOC_MISMATCH": frozenset({"collateral"}),
 }
 # Tags that are relevant to every report.
 ALWAYS_TAGS = frozenset({"str_filing", "hold"})
@@ -294,6 +296,17 @@ def draft_str(
            f"{m.entry.bank_id} ({m.match_type.value} match, similarity {m.similarity:.2f}).", [match_cit])
     for ev in conf.evidence:
         p5.add(f"Rule {ev.rule_id} (weight {ev.weight:.2f}): {ev.description}", list(ev.citations))
+    # physical-cargo / cross-document findings: dedicated sentences citing the documents and registry rows checked
+    if "R_NO_VESSEL_CALL" in fired:
+        e = fired["R_NO_VESSEL_CALL"]
+        p5.add(f"Physical-cargo check: the vessel and voyage on the bill of lading have no recorded port call at "
+               f"the port of loading around the shipment date in the port-call data, so the pledged cargo may not "
+               f"exist.", [c for c in e.citations if c.kind != CitationKind.RULE] or list(e.citations))
+    if "R_DOC_MISMATCH" in fired:
+        e = fired["R_DOC_MISMATCH"]
+        doc_cits = [c for c in e.citations if c.kind == CitationKind.DOCUMENT]
+        p5.add("Cross-document check: the bill of lading, invoice, letter of credit and warehouse receipt do not "
+               "agree with each other (see the quoted document lines cited).", doc_cits or list(e.citations))
     all_ev_cits = _dedupe([c for ev in conf.evidence for c in ev.citations] + [match_cit])
     p5.add(f"The deterministic confidence score is {conf.score:.2f} ({conf.band.value}).", all_ev_cits)
     for cl in select_policy_clauses(inv.policy_clauses, set(fired), m):

@@ -23,7 +23,9 @@ USING (SELECT * FROM VALUES
   ('R_CORP_OWNERSHIP',  0.25, 'one borrower owns (directly/indirectly) the other'),
   ('R_SAME_ADDRESS',    0.10, 'same registered address'),
   ('R_SAME_PHONE',      0.10, 'same phone number'),
-  ('R_TIMING_OVERLAP',  0.15, 'second pledge within timing window of the first')
+  ('R_TIMING_OVERLAP',  0.15, 'second pledge within timing window of the first'),
+  ('R_NO_VESSEL_CALL',  0.35, 'B/L vessel+voyage has no port call at the POL within +-10 days (cargo may not exist)'),
+  ('R_DOC_MISMATCH',    0.25, 'B/L / invoice / LC / warehouse receipt disagree on quantity, commodity or value')
   AS s(rule_id, weight, description)) s
 ON t.rule_id = s.rule_id
 WHEN MATCHED THEN UPDATE SET weight = s.weight, description = s.description
@@ -43,7 +45,7 @@ WHEN NOT MATCHED THEN INSERT (param, value) VALUES (s.param, s.value);
 -- (or derived by a loader from the Investigation dataclass).
 CREATE TABLE IF NOT EXISTS INVESTIGATION_FACTS (
   request_id          VARCHAR NOT NULL,
-  match_type          VARCHAR NOT NULL COMMENT 'EXACT | FUZZY',
+  match_type          VARCHAR COMMENT 'EXACT | FUZZY; NULL = stand-alone document/cargo finding (no consortium match)',
   same_borrower       BOOLEAN DEFAULT FALSE COMMENT 'same company at both banks: counts as shared UBO + shared director',
   shared_ubo_count    NUMBER DEFAULT 0,
   shared_director_count NUMBER DEFAULT 0,
@@ -51,9 +53,15 @@ CREATE TABLE IF NOT EXISTS INVESTIGATION_FACTS (
   shared_address_count NUMBER DEFAULT 0,
   shared_phone_count  NUMBER DEFAULT 0,
   timing_overlap_days NUMBER COMMENT 'NULL when counterparty unresolved',
+  no_vessel_call      BOOLEAN DEFAULT FALSE COMMENT 'R_NO_VESSEL_CALL fired (no port call at POL within +-10 days)',
+  doc_mismatch        BOOLEAN DEFAULT FALSE COMMENT 'R_DOC_MISMATCH fired (documents disagree)',
   recorded_at TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP()::TIMESTAMP_NTZ,
   PRIMARY KEY (request_id)
 );
+-- upgrade path for tables created before ITER-06 (CREATE IF NOT EXISTS above does not add columns)
+ALTER TABLE INVESTIGATION_FACTS ADD COLUMN IF NOT EXISTS no_vessel_call BOOLEAN DEFAULT FALSE;
+ALTER TABLE INVESTIGATION_FACTS ADD COLUMN IF NOT EXISTS doc_mismatch   BOOLEAN DEFAULT FALSE;
+ALTER TABLE INVESTIGATION_FACTS ALTER COLUMN match_type DROP NOT NULL;
 GRANT SELECT, INSERT, UPDATE ON TABLE INVESTIGATION_FACTS TO ROLE SURAKSHA_APP;
 GRANT SELECT ON TABLE RULE_WEIGHTS TO ROLE SURAKSHA_APP;
 GRANT SELECT ON TABLE RULE_PARAMS  TO ROLE SURAKSHA_APP;
@@ -86,22 +94,31 @@ WITH fired AS (
     FROM INVESTIGATION_FACTS f
     WHERE f.timing_overlap_days IS NOT NULL
       AND f.timing_overlap_days <= (SELECT value FROM RULE_PARAMS WHERE param = 'timing_window_days')
+  UNION ALL
+  SELECT f.request_id, 'R_NO_VESSEL_CALL'
+    FROM INVESTIGATION_FACTS f WHERE f.no_vessel_call
+  UNION ALL
+  SELECT f.request_id, 'R_DOC_MISMATCH'
+    FROM INVESTIGATION_FACTS f WHERE f.doc_mismatch
 )
 SELECT fired.request_id, fired.rule_id, w.weight, w.description
 FROM fired JOIN RULE_WEIGHTS w ON w.rule_id = fired.rule_id;
 
--- ---- score + band per request (score = sum of weights capped at 1; HIGH if >= threshold)
+-- ---- score + band per request (score = sum of weights capped at 1; HIGH if >= threshold).
+-- Stand-alone rows (match_type IS NULL: document/cargo evidence without a consortium match) are NEVER HIGH,
+-- mirroring confidence.score_standalone (they go to NEED_MORE_EVIDENCE for an analyst).
 CREATE OR REPLACE VIEW V_CONFIDENCE AS
 SELECT
   f.request_id,
   LEAST(1, COALESCE(SUM(e.weight), 0))                               AS score,
-  IFF(LEAST(1, COALESCE(SUM(e.weight), 0))
+  IFF(f.match_type IS NOT NULL
+      AND LEAST(1, COALESCE(SUM(e.weight), 0))
         >= (SELECT value FROM RULE_PARAMS WHERE param = 'confidence_threshold'),
       'HIGH', 'LOW')                                                 AS band,
   ARRAY_AGG(e.rule_id) WITHIN GROUP (ORDER BY e.rule_id)             AS fired_rules
 FROM INVESTIGATION_FACTS f
 LEFT JOIN V_RULE_EVIDENCE e ON e.request_id = f.request_id
-GROUP BY f.request_id;
+GROUP BY f.request_id, f.match_type;
 
 GRANT SELECT ON VIEW V_RULE_EVIDENCE TO ROLE SURAKSHA_APP;
 GRANT SELECT ON VIEW V_CONFIDENCE    TO ROLE SURAKSHA_APP;

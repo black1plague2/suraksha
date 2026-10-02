@@ -1,18 +1,18 @@
 {
-  "run_at": "2026-10-02T21:32:22",
+  "run_at": "2026-10-02T22:16:12",
   "seed": 42,
-  "requests": 173,
+  "requests": 192,
   "confusion": {
-    "tp": 43,
+    "tp": 56,
     "fn": 0,
     "fp": 2,
-    "tn": 128
+    "tn": 134
   },
   "detection_rate": 1.0,
-  "false_positive_rate": 0.0154,
+  "false_positive_rate": 0.0147,
   "latency_ms": {
-    "p50": 0.57,
-    "max": 26.04
+    "p50": 1.85,
+    "max": 34.22
   },
   "str_drafted": 36,
   "citation_errors": {},
@@ -29,6 +29,9 @@
     "decoy_hard_same_voyage_same_qty": {
       "NEED_MORE_EVIDENCE": 2
     },
+    "decoy_minor_rounding": {
+      "CLEAR": 3
+    },
     "decoy_related_diff_cargo": {
       "CLEAR": 5
     },
@@ -37,6 +40,15 @@
     },
     "decoy_same_commodity_diff_voyage": {
       "CLEAR": 4
+    },
+    "decoy_vessel_call_edge": {
+      "CLEAR": 3
+    },
+    "doc_mismatch_qty": {
+      "NEED_MORE_EVIDENCE": 4
+    },
+    "doc_mismatch_value": {
+      "NEED_MORE_EVIDENCE": 4
     },
     "dup_exact_same_borrower": {
       "PENDING_APPROVAL": 8
@@ -73,6 +85,9 @@
     },
     "dup_weak_unlinked": {
       "NEED_MORE_EVIDENCE": 7
+    },
+    "phantom_no_vessel_call": {
+      "NEED_MORE_EVIDENCE": 5
     }
   },
   "goals": {

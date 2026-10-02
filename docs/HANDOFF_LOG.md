@@ -13,7 +13,7 @@ _(agents append here; master applies and records the resolution)_
 
 ---
 
-## 2026-10-02 · ITER-06 · Improvement wave 1 (IN PROGRESS) — deadline ~1 day
+## 2026-10-02 · ITER-06 · Wave 1 built locally ✅ (404 tests, 100%/1.5%) — live deploy next — see logs/iterations/ITER-06.md
 - Triage of external suggestions done (kept: Snowflake-native + explainable; rejected: ML/GNN scoring, external APIs (trial has no
   egress), auto-tuned weights, TTL caching of no-match, cross-bank embeddings, HE/MPC, Docker/CLI — reasons in chat/ITER-06 log).
 - Agents running: new-rules (Sonnet: R_NO_VESSEL_CALL phantom cargo + R_DOC_MISMATCH, SQL mirror; master must apply its pipeline.py diff),

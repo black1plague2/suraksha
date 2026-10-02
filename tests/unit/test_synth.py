@@ -92,14 +92,16 @@ def test_counts_and_structure(ds):
               "dup_format_noise", "dup_weak_unlinked"]:
         assert sc["dup_original_" + s[4:]] == 5
         assert 5 <= sc[s] <= 10
-    decoys = sum(v for k, v in sc.items() if k.startswith("decoy_") and k != "decoy_anchor")
+    new_rules = {"decoy_minor_rounding", "decoy_vessel_call_edge"}
+    decoys = sum(v for k, v in sc.items() if k.startswith("decoy_") and k != "decoy_anchor" and k not in new_rules)
     assert decoys == 20
     assert 0 < sc["decoy_hard_same_voyage_same_qty"] <= 2
     assert len(ds.companies) >= 150
     assert len(ds.policy_clauses) >= 11
     assert set(ds.labels) == set(ds.scenarios) == {r.request_id for r in ds.requests}
     for rid, scn in ds.scenarios.items():
-        assert ds.labels[rid] is (scn.startswith("dup_") and not scn.startswith("dup_original_"))
+        positive = (scn.startswith("dup_") and not scn.startswith("dup_original_")) or             scn in ("phantom_no_vessel_call", "doc_mismatch_qty", "doc_mismatch_value")
+        assert ds.labels[rid] is positive
     assert len({c["reg_no"] for c in ds.companies}) == len(ds.companies)
     assert ds.borrower_reg_no[ds.companies[0]["company_id"]] == ds.companies[0]["reg_no"]
 
