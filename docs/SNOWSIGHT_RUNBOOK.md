@@ -42,9 +42,22 @@ CALL SURAKSHA.CORE.RUN_PIPELINE(42);      -- JSON: detection_rate, false_positiv
 ```
 - Run `RUN_PIPELINE` once per fresh database: the consortium ledger and audit log are append-only, a second run would see the first run's pledges. Reset = `DROP DATABASE SURAKSHA;` then re-run section 2 step 1.
 - Expect minutes (several round trips per request). Suspend afterwards: `ALTER WAREHOUSE SURAKSHA_WH SUSPEND;`
-- Open the app: Snowsight, Projects, Streamlit, `SURAKSHA_APP` (needs role SURAKSHA_APP or SURAKSHA_ADMIN). The app generates and screens synthetic data in-process (memory backend); it does not yet read the Snowflake tables.
+- Open the app: Snowsight, Projects, Streamlit, `SURAKSHA_APP` (needs role SURAKSHA_APP or SURAKSHA_ADMIN). Inside Snowflake the app detects the Streamlit-in-Snowflake session and reads the live tables (PIPELINE_RESULTS, CASES, REPORTS, AUDIT_LOG, REGISTRY); approvals go through `DECIDE_CASE`.
+- Faster alternative for demos: `CALL SURAKSHA.CORE.RUN_PIPELINE_BATCH(42, TRUE);` as SURAKSHA_ADMIN (section 6) — same results in ~37 statements / ~15 s.
 
 ## 4. TEST (as SURAKSHA_APP unless noted)
+
+> **Secondary roles — read first.** Newer Snowflake accounts default users to `USE SECONDARY ROLES ALL`, so after
+> `USE ROLE SURAKSHA_APP` a human user still carries the privileges of every other role it holds (e.g. ACCOUNTADMIN).
+> Any "must fail with insufficient privileges" check is only meaningful with secondary roles off:
+> ```sql
+> USE ROLE SURAKSHA_APP;
+> USE SECONDARY ROLES NONE;
+> SELECT CURRENT_ROLE(), CURRENT_SECONDARY_ROLES();   -- SURAKSHA_APP, {"roles":""}
+> SHOW GRANTS ON TABLE SURAKSHA.CORE.CASES;            -- SURAKSHA_APP: SELECT, INSERT only
+> ```
+> Live ITER-05: an `UPDATE CASES` "succeeded" as SURAKSHA_APP because ACCOUNTADMIN was active as a secondary role.
+
 1. Rule parity, SQL vs Python (`RUN_PIPELINE` fills `INVESTIGATION_FACTS` and `PIPELINE_RESULTS`):
    ```sql
    SELECT p.request_id, p.py_score, c.score AS sql_score, p.py_band, c.band AS sql_band
@@ -63,6 +76,7 @@ CALL SURAKSHA.CORE.RUN_PIPELINE(42);      -- JSON: detection_rate, false_positiv
 6. Gate G4 (human approval) enforced in SQL. Pick a pending case: `SELECT case_id FROM SURAKSHA.CORE.CASES WHERE status = 'PENDING_APPROVAL' LIMIT 2;`
    ```sql
    USE ROLE SURAKSHA_APP;
+   USE SECONDARY ROLES NONE;   -- otherwise ACCOUNTADMIN privileges leak in and the UPDATE check is meaningless
    CALL SURAKSHA.CORE.DECIDE_CASE('<case_id>', 'APPROVE', 'system:bot', '');   -- must ERROR (system actor)
    CALL SURAKSHA.CORE.DECIDE_CASE('<case_id>', 'REJECT',  'Priya Nair', '');   -- must ERROR (reason required)
    CALL SURAKSHA.CORE.DECIDE_CASE('<case_id>', 'APPROVE', 'Priya Nair', '');   -- succeeds: FILED, hold_recommended TRUE

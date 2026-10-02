@@ -75,3 +75,10 @@ DECIDE_CASE transaction + `?` binds in owner's-rights proc · container runtime 
 - **LIVE SUCCESS:** `RUN_PIPELINE_BATCH(42, TRUE)` → detection 1.0 (43/43), FPR 0.0154 (2/130), 128/36/9, 36 STRs, audit intact,
   37 statements, 14.3 s — identical to local. `package_from: @CORE.CODE (25 files)`: owner's-rights procs can't LIST the git stage;
   refreshed fallback works. Evidence: `docs/evidence/RUN_coco_batch.md`.
+- **CoCo TEST run 1:** parity PASS (0 mismatches / 45 compared); DECIDE_CASE system actor refused PASS; reject-without-reason
+  refused PASS; named officer approve → FILED + hold PASS; double decision refused PASS; audit chain intact (567 rows) PASS.
+  **`UPDATE CASES` as SURAKSHA_APP: FAIL (1 row updated).** Repo grants are correct (01/10 grant SELECT+INSERT, revoke UPDATE;
+  DECIDE_CASE already EXECUTE AS OWNER). Diagnosis (master): `USE SECONDARY ROLES ALL` default — the human user's
+  ACCOUNTADMIN privileges applied despite `USE ROLE SURAKSHA_APP`. Runbook now requires `USE SECONDARY ROLES NONE` +
+  `SHOW GRANTS ON TABLE CASES` before privilege checks. Side effect: one case was set FILED with no officer/audit →
+  re-run batch with reset, then repeat the TEST.
