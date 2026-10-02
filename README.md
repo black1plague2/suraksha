@@ -12,7 +12,7 @@ Snowflake CoCo CLI Hackathon (GCC Edition) · Track: Risk, Fraud and Regulatory 
 |---|---|---|
 | G1 detect seeded duplicates | ≥ 90% | **100%** (56/56, incl. phantom cargo + document mismatches) |
 | G1 false-positive rate | < 10% | **1.5%** (2/136 — both deliberately ambiguous decoys, held for more evidence, not filed) |
-| G2 alert → cited finding | < 5 min | **~74 s** for a single new request via the live inbox stream; ~14 s for a 173-request batch |
+| G2 alert → cited finding | < 5 min | **~74 s** for a single new request via the live inbox stream; ~14 s for a full batch (173–192 requests) |
 | G3 every claim cited | no black box | 36 STRs, 0 uncited sentences; SQL rules reproduce Python scores exactly (0/58 mismatches) |
 | G4 humans in control | named officer only | enforced in SQL: `DECIDE_CASE` refuses system actors; app role cannot UPDATE cases or DELETE audit |
 | G5 CoCo in every phase | plan · build · run · test | [evidence](docs/evidence/) |
@@ -45,7 +45,7 @@ Details: [PRD](docs/PRD.md) · [Architecture](docs/ARCHITECTURE.md) · [Contract
 - **Locally (no credentials):**
   ```bash
   pip install -e ".[dev]"
-  python -m pytest -q            # 354 tests
+  python -m pytest -q            # 404 tests
   python scripts/eval.py         # PRD goals
   python scripts/demo.py --approve "Priya Nair"   # narrated end-to-end
   ```
