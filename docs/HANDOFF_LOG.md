@@ -13,6 +13,16 @@ _(agents append here; master applies and records the resolution)_
 
 ---
 
+## 2026-10-03 · Submission prep — public demo live
+- Public demo: https://suraksha01.streamlit.app/ (Community Cloud, memory backend, deploys from `main`; `requirements.txt` added).
+- Keep-awake: `.github/workflows/keep-alive.yml` + `scripts/keep_alive.py`, every 4 h; needs repo variable `APP_URL` (user to set).
+- README has the "Try it live" link; RUNBOOK has a "Public demo" section.
+- Submission (deadline 04/10/2026 11:59 PM IST): challenge = Risk, Fraud and Regulatory Intelligence Copilot; repo + live link;
+  923-char brief and a 3–5 min CoCo demo-video script were given in chat (CoCo runs RUN_PIPELINE_BATCH → SUBMIT_DEMO_DUPLICATE →
+  app case view → DECIDE_CASE refusal/approval → audit verify).
+- In progress: "taste-skill" design audit of the app (github.com/leonxlnx/taste-skill redesign + minimalist guidance), keeping the
+  approved fonts/palette.
+
 ## 2026-10-02 · ITER-07 · New app look (calm, plain-language) — built + checked locally
 - Design approved by user: https://claude.ai/artifact/8hKwGvahNNJLUEx9MSwfAC (Source Serif 4 + Manrope, "Midnight & apricot" on cool mist #EEF1F5, short headings, data only).
 - App rebuilt to match (app/ui.py tokens/CSS, .streamlit/config.toml). Master fixes after browser check: headline the STRONGEST ownership link (owner > ownership > director > shareholder > address > phone), "capped from" score total, calm casing of document text, exposure KPI per currency, nav/brand/chain layout.

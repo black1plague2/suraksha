@@ -272,3 +272,17 @@ pytest tests/unit -k snowflake --snowflake
 4. For judges: follow [COCO_USAGE.md](COCO_USAGE.md) to demonstrate plan → build → run → test using CoCo CLI prompts.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for system design and [CONTRACTS.md](CONTRACTS.md) for module ownership.
+
+## Public demo (Streamlit Community Cloud)
+
+The public demo at **https://suraksha01.streamlit.app/** is deployed straight from this repo's `main` branch:
+
+- Main file: `streamlit_app.py` (repo root). Packages: `requirements.txt` (Streamlit in Snowflake uses `environment.yml` instead).
+- It runs the app on built-in demo data (memory backend) — no Snowflake connection and no credentials online.
+- Every push to `main` redeploys it automatically within a minute or two.
+
+**Keeping it awake.** Free Community Cloud apps sleep after a while without visitors. The workflow
+`.github/workflows/keep-alive.yml` runs every 4 hours, opens the app in a headless browser
+(`scripts/keep_alive.py`) and clicks "Yes, get this app back up!" if it was asleep. It reads the app address from the
+repository variable `APP_URL` (Settings → Secrets and variables → Actions → Variables). Run it by hand from the
+Actions tab to test; the log ends with "App is up."

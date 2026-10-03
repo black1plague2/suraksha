@@ -17,7 +17,7 @@ Start at the top; go further only if you need the detail.
 |---|---|
 | [SNOWSIGHT_RUNBOOK.md](SNOWSIGHT_RUNBOOK.md) | set it up and run it in Snowflake, step by step, in the browser |
 | [SNOWFLAKE_DEPLOY.md](SNOWFLAKE_DEPLOY.md) | the same, from a command line |
-| [RUNBOOK.md](RUNBOOK.md) | run it on your own computer |
+| [RUNBOOK.md](RUNBOOK.md) | run it on your own computer, or look after the public demo |
 | [COCO_USAGE.md](COCO_USAGE.md) | see the Cortex Code prompts used in each stage |
 | [TESTING.md](TESTING.md) | see how it is tested |
 
