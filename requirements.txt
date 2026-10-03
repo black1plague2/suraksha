@@ -1,0 +1,4 @@
+# Used by Streamlit Community Cloud (public demo). Streamlit in Snowflake uses environment.yml instead.
+streamlit>=1.38
+pandas>=2.2
+numpy>=1.26
