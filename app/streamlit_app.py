@@ -392,8 +392,7 @@ def analyst_kpis(app, df: pd.DataFrame) -> None:
     if held.empty:
         k[3].metric("Exposure held", "-")
     else:
-        k[3].metric("Exposure held", " · ".join(ui.fmt_compact(v, c) for c, v in held.items()),
-                    help="Pending + filed cases, per currency: " + ", ".join(ui.fmt_money(v, c) for c, v in held.items()))
+        k[3].metric("Exposure held", " · ".join(ui.fmt_compact(v, c) for c, v in held.items()))
     try:
         frame, _rules, labels_ok = whatif_frame(app)
         flagged_ids = set(df.loc[df["status"] != "CLEAR", "request_id"])
@@ -401,8 +400,7 @@ def analyst_kpis(app, df: pd.DataFrame) -> None:
         y = frame["label"].to_numpy(dtype=bool)
         det = float((pred & y).sum()) / max(int(y.sum()), 1)
         fpr = float((pred & ~y).sum()) / max(int((~y).sum()), 1)
-        k[4].metric("Detection · false positives", f"{det:.0%} · {fpr:.1%}" if labels_ok else "n/a",
-                    help="Flagged requests (any status but Clear) against the synthetic ground-truth labels."
+        k[4].metric("Detection · false positives", f"{det:.0%} · {fpr:.1%}" if labels_ok else "n/a"
                     if labels_ok else "No ground-truth labels available.")
     except Exception:
         k[4].metric("Detection · false positives", "n/a")
@@ -424,7 +422,7 @@ def page_analyst(app) -> None:
     if stat:
         view = view[view["status"].isin(stat)]
     if view.empty:
-        st.info("No requests match the filter. Clear the bank or status filter to see the full queue.")
+        st.info("No matching requests.")
         return
     st.dataframe(pretty_requests(view), use_container_width=True, hide_index=True)
     subhead("Detail")
@@ -443,7 +441,7 @@ def page_analyst(app) -> None:
         res = app["results"][rid]
         f = res.fields
     if f is None:
-        st.caption("No extracted fields stored for this request.")
+        st.caption("No details stored.")
         return
     subhead("Fields")
     st.dataframe(fields_table(f).rename(columns={"field": "Field", "value": "Value", "source": "Source",
@@ -484,7 +482,7 @@ def page_investigator(app) -> None:
             col.button(ex, key=f"inv_ex_{examples.index(ex)}", use_container_width=True,
                        on_click=lambda e=ex: st.session_state.__setitem__("inv_q", e))
     else:
-        st.caption("No companies loaded yet, so there is nothing to query.")
+        st.caption("No companies loaded.")
     q = st.text_input("Question", key="inv_q", placeholder="who else is linked to <company>?")
     if q.strip():
         try:
@@ -517,7 +515,7 @@ def page_investigator(app) -> None:
     if app["mode"] == "snowflake":
         weak_rows = [r for r in app["rows"] if r["pipeline_status"] is PipelineStatus.NEED_MORE_EVIDENCE]
         if not weak_rows:
-            st.caption("Nothing waiting on evidence. Cases land here when a match scores below the threshold.")
+            st.caption("None waiting.")
         for r in weak_rows:
             score = f"{r['py_score']:.2f}" if r.get("py_score") is not None else "-"
             with st.expander(f"{r['request_id']} · score {score} ({r.get('py_band')})"):
@@ -525,7 +523,7 @@ def page_investigator(app) -> None:
         return
     weak = [(rid, r) for rid, r in app["results"].items() if r.status is PipelineStatus.NEED_MORE_EVIDENCE]
     if not weak:
-        st.caption("Nothing waiting on evidence. Cases land here when a match scores below the threshold.")
+        st.caption("None waiting.")
     for rid, r in weak:
         conf, inv = r.confidence, r.investigation
         bank = f"{inv.match.entry.bank_id} match" if inv is not None else "document check"
@@ -730,8 +728,7 @@ def render_case_card(app, case, rows) -> None:
             ui.panel(f"Today · {ui.bank_label(info['bank'])}", info["borrower"],
                      [f"Asked for {ui.fmt_money(info['amount'], info['currency'])}", f"Submitted {info['submitted']}"]),
             ui.panel(("Earlier" if days is None else f"{days} days earlier") + f" · {ui.bank_label(m.entry.bank_id)}", other,
-                     [f"Pledged {m.entry.pledged_at.strftime('%d %b %Y')}", kind])) +
-            f'<div class="sk-tiny">Matched fingerprint: <span class="sk-mono">{ui.esc(hashes)}</span></div>'))
+                     [f"Pledged {m.entry.pledged_at.strftime('%d %b %Y')}", kind])) ))
     elif app["mode"] == "snowflake":
         facts_row = snowflake_facts(store, rid)
         txt = (f"Match type {facts_row.get('match_type')}; timing overlap {facts_row.get('timing_overlap_days')} day(s)."
@@ -758,7 +755,7 @@ def render_case_card(app, case, rows) -> None:
         if inv.shared_phones:
             extra.append("They share a phone number: " + ", ".join(inv.shared_phones))
         secs.append((link_title, ui.node_chain(cards, rels) +
-                     "".join(f'<div class="sk-note">{ui.esc(x)}</div>' for x in extra)))
+                     ""))
     else:
         if inv is not None and inv.counterparty_company_id == inv.borrower_id:
             txt = "It is the same legal entity at both banks, so no ownership link is needed."
@@ -779,7 +776,6 @@ def render_case_card(app, case, rows) -> None:
     st.markdown(ui.sections_card(secs), unsafe_allow_html=True)
     if paths and st.checkbox("Show the link as a diagram", key=f"graph_{case.case_id}"):
         draw_path(store, paths[0])
-        st.caption(" → ".join(describe_edge(e) for e in paths[0].edges))
 
 
 def render_report(app, case, draft) -> None:
@@ -788,7 +784,7 @@ def render_report(app, case, draft) -> None:
     res = app["results"].get(rid) if app["mode"] == "memory" else None
     with st.expander("Drafted report", expanded=False):
         if draft is None:
-            st.caption("No report was drafted for this case.")
+            st.caption("No report.")
         else:
             juris = None
             if report_templates is not None:
@@ -806,26 +802,25 @@ def render_report(app, case, draft) -> None:
                             cits.append(c)
             if cits:
                 kinds = Counter(c.kind.value for c in cits)
-                st.caption("Sources: " + ", ".join(f"{v} {k}" for k, v in kinds.items()))
                 st.markdown(ui.citation_chips(cits), unsafe_allow_html=True)
     with st.expander("All document details", expanded=False):
         f = res.fields if res else store.get_fields(rid)
         if f is None:
-            st.caption("No extracted fields stored for this request.")
+            st.caption("No details stored.")
         else:
             st.dataframe(fields_table(f).rename(columns={"field": "Field", "value": "Value", "source": "Source",
                                                          "snippet": "Source line"}),
                          use_container_width=True, hide_index=True)
             rows, _s, _b = rule_rows(app, rid)
             ans = vessel_answer(app, f, {r["rule"] for r in rows})
-            st.caption(f"Did the ship really call at the loading port? {ans}.")
+            st.caption(f"Port call at loading port: {ans}")
 
 
 def _evidence_block(score, thr: float) -> str:
     tone = "bad" if (score is not None and score >= round(thr, 4)) else "warn"
     sc = "-" if score is None else f"{score:.2f}"
     return (f'<div class="sk-ev"><small>Evidence</small><div class="sk-score {tone}">{sc}</div>'
-            f'{ui.score_bar(score, thr)}<span>A case opens at {thr:.2f}</span></div>')
+            f'{ui.score_bar(score, thr)}</div>')
 
 
 def render_decision(app, case) -> None:
@@ -908,7 +903,7 @@ def page_mlro(app) -> None:
     pending = [c for c in cases if c.status is CaseStatus.PENDING_APPROVAL]
     if not cases:
         header("Cases")
-        st.info("No cases yet. Cases appear here once the pipeline drafts a report for a strong match.")
+        st.info("No cases yet.")
         return
     c1, c2 = st.columns([4, 1])
     only_pending = c2.checkbox("Pending only", value=True, key="mlro_pending")
@@ -978,7 +973,7 @@ def page_risk(app) -> None:
     with m[0]:
         st.markdown("**Exposure held** (pending + filed)")
         if held.empty:
-            st.caption("Nothing held yet.")
+            st.caption("Nothing held.")
         for cur, amt in held.items():
             st.metric(cur or "?", f"{amt:,.0f}")
     try:
@@ -986,14 +981,13 @@ def page_risk(app) -> None:
     except Exception:
         ttf = pd.Series(dtype=float)
     med = "-" if ttf.empty else (f"{ttf.median() * 1000:,.0f} ms" if ttf.median() < 2 else f"{ttf.median():,.1f} s")
-    m[1].metric("Median time: request to drafted finding", med,
-                help="Audit-log REQUEST_RECEIVED to CASE_OPENED, per request with a drafted STR.")
+    m[1].metric("Median time: request to drafted finding", med)
     m[2].metric("Analyst queue (need more evidence)", int((df["status"] == "HOLD-for-evidence").sum()))
 
     subhead("Flagged exposure")
     exp = flagged.groupby("currency", as_index=False)["amount"].sum()
     if exp.empty:
-        st.caption("No flagged exposure in the current data.")
+        st.caption("No exposure.")
     else:
         for col, (_, r) in zip(st.columns(len(exp)), exp.iterrows()):
             col.metric(r["currency"], f"{r['amount']:,.0f}")
@@ -1013,7 +1007,6 @@ def page_risk(app) -> None:
     st.dataframe(daily.sort_values("submitted", ascending=False).rename(columns={
         "submitted": "Date", "requests": "Requests", "flagged": "Flagged", "flagged_exposure": "Flagged exposure"}),
         use_container_width=True, hide_index=True)
-    st.caption("Status mix: " + ", ".join(f"{ui.status_label(k)} {v}" for k, v in Counter(df["status"]).items()))
 
 
 # ---------------------------------------------------------------------- policy what-if
@@ -1068,41 +1061,27 @@ def page_whatif(app) -> None:
     base_thr = float(get_settings().confidence_threshold)
     base_w = {r: float(RULE_WEIGHTS.get(r, 0.0)) for r in rules}
     if not labels_ok:
-        st.info("Ground-truth labels are not available (PIPELINE_RESULTS.label_duplicate); "
-                "detection and false-positive rates cannot be computed.")
+        st.info("Labels not available.")
     side, main = st.columns([1, 2])
     with side:
         with st.expander("Policy levers", expanded=True):
             st.button("Reset to current policy", on_click=_reset_whatif, key="wi_reset", use_container_width=True)
-            thr = st.slider("Confidence threshold", 0.05, 1.0, base_thr, 0.01, key="wi_thr")
-            st.caption("Rule weights")
-            weights = {r: st.slider(r, 0.0, 1.0, base_w[r], 0.01, key=f"wi_w_{r}") for r in rules}
+            thr = st.slider("Report threshold", 0.05, 1.0, base_thr, 0.01, key="wi_thr")
+            weights = {r: st.slider(RULE_PLAIN.get(r, r), 0.0, 1.0, base_w[r], 0.01, key=f"wi_w_{r}") for r in rules}
     base = simulate(frame, rules, base_w, base_thr)
     sim = simulate(frame, rules, weights, thr)
     with main:
         k = st.columns(4)
-        k[0].metric("Detection rate", f"{sim['detection']:.1%}",
+        k[0].metric("Duplicates reported", f"{sim['detection']:.1%}",
                     f"{(sim['detection'] - base['detection']) * 100:+.1f} pp")
-        k[1].metric("False-positive rate", f"{sim['fpr']:.1%}",
+        k[1].metric("Clean requests reported", f"{sim['fpr']:.1%}",
                     f"{(sim['fpr'] - base['fpr']) * 100:+.1f} pp", delta_color="inverse")
-        k[2].metric("Escalated to STR", int(sim["pred"].sum()), int(sim["pred"].sum() - base["pred"].sum()))
+        k[2].metric("Reports drafted", int(sim["pred"].sum()), int(sim["pred"].sum() - base["pred"].sum()))
         k[3].metric("Requests", len(frame))
-        if labels_ok:
-            chart = pd.DataFrame({"Current policy": [base["detection"] * 100, base["fpr"] * 100],
-                                  "Simulated": [sim["detection"] * 100, sim["fpr"] * 100]},
-                                 index=["Detection rate %", "False-positive rate %"])
-            st.bar_chart(chart, height=200)
-        cm = pd.DataFrame({"Actual duplicate": [sim["tp"], sim["fn"]], "Actual clean": [sim["fp"], sim["tn"]]},
-                          index=["Predicted HIGH (escalate)", "Predicted LOW (hold / clear)"])
-        bcm = pd.DataFrame({"Actual duplicate": [base["tp"], base["fn"]], "Actual clean": [base["fp"], base["tn"]]},
-                           index=cm.index)
-        c1, c2 = st.columns(2)
-        c1.markdown("**Confusion matrix (simulated)**")
-        c1.dataframe(cm, use_container_width=True)
-        c2.markdown("**Delta vs current policy**")
-        c2.dataframe(cm - bcm, use_container_width=True)
-        st.caption(f"Current policy: threshold {base_thr:.2f}, default weights. Positive = scored HIGH band "
-                   "(STR drafted); label = known duplicate in the synthetic data.")
+        cm = pd.DataFrame({"Duplicate": [sim["tp"], sim["fn"]], "Clean": [sim["fp"], sim["tn"]]},
+                          index=["Report drafted", "No report"])
+        st.markdown("**Outcomes**")
+        st.dataframe(cm, use_container_width=True)
 
         st.markdown("**Requests that flip band**")
         flip = sim["pred"] != base["pred"]
@@ -1114,18 +1093,16 @@ def page_whatif(app) -> None:
             f["label"] = np.where(f["label"], "duplicate", "clean") if labels_ok else "n/a"
             st.dataframe(f, use_container_width=True, hide_index=True)
         else:
-            st.caption("No request changes band under the simulated policy.")
+            st.caption("No changes.")
 
-        st.markdown("**Marginal value per rule** (simulated policy with that rule's weight set to 0)")
+        st.markdown("**Value of each rule**")
         out = []
         for r in rules:
             alt = simulate(frame, rules, {**weights, r: 0.0}, thr)
-            out.append({"rule": r, "weight": weights[r], "fires on": int(frame[r].sum()),
-                        "detection if removed": alt["detection"],
-                        "delta detection (pp)": (alt["detection"] - sim["detection"]) * 100,
-                        "FPR if removed": alt["fpr"], "delta FPR (pp)": (alt["fpr"] - sim["fpr"]) * 100})
-        st.dataframe(pd.DataFrame(out).round(4), use_container_width=True, hide_index=True)
-    st.caption("Simulation only - changing live policy requires governed approval.")
+            out.append({"Rule": RULE_PLAIN.get(r, r), "Weight": round(weights[r], 2), "Fires on": int(frame[r].sum()),
+                        "Reports lost without it": int(sim["tp"] - alt["tp"])})
+        st.dataframe(pd.DataFrame(out), use_container_width=True, hide_index=True)
+    
 
 
 # --------------------------------------------------------------------------- main

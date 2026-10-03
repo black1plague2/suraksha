@@ -37,14 +37,14 @@ def test_whatif_defaults_match_pipeline_and_flips_on_threshold():
     at.radio(key="persona").set_value("Policy what-if").run()
     assert not at.exception, at.exception
     assert len(at.slider) >= 1 + len(RULE_WEIGHTS)  # threshold + one per rule (incl. any new rules)
-    assert _metric(at, "Detection rate").delta.startswith("+0.0")  # defaults == current policy
-    assert any("governed approval" in c.value for c in at.caption)
+    assert _metric(at, "Duplicates reported").delta.startswith("+0.0")  # defaults == current policy
+    # explanatory captions were removed on request (headings + data only)
     at.slider(key="wi_thr").set_value(1.0).run()  # near-impossible bar: almost nothing escalates
     assert not at.exception, at.exception
-    assert _metric(at, "Detection rate").delta.startswith("-")
+    assert _metric(at, "Duplicates reported").delta.startswith("-")
     at.button(key="wi_reset").click().run()
     assert not at.exception, at.exception
-    assert _metric(at, "Detection rate").delta.startswith("+0.0")
+    assert _metric(at, "Duplicates reported").delta.startswith("+0.0")
 
 
 def test_mlro_evidence_chain_steps():
@@ -202,9 +202,9 @@ def test_snowflake_whatif_uses_label_column(fake_snowflake):
     at.radio(key="persona").set_value("Policy what-if").run()
     assert not at.exception, at.exception
     # R1 = labelled duplicate fired R_EXACT_HASH (0.5 < 0.6 threshold) -> LOW at defaults; R2 clean
-    assert _metric(at, "Detection rate").value == "0.0%"
+    assert _metric(at, "Duplicates reported").value == "0.0%"
     at.slider(key="wi_thr").set_value(0.5).run()
-    assert _metric(at, "Detection rate").value == "100.0%"
+    assert _metric(at, "Duplicates reported").value == "100.0%"
     assert not [i for i in at.info if "labels are not available" in i.value]
 
 

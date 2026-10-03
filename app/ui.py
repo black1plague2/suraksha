@@ -345,8 +345,8 @@ def badges(live: bool) -> str:
 
 
 def page_header(title: str, sub: str) -> str:
-    s = f'<div class="sk-sub">{esc(sub)}</div>' if sub else ""
-    return f'<div class="sk-title">{esc(title)}</div>{s}'
+    # Headings only: page subtitles are intentionally not rendered (user: no explanatory text).
+    return f'<div class="sk-title">{esc(title)}</div>'
 
 
 def section(title: str) -> str:
@@ -378,9 +378,8 @@ FONT_CSS = ("<style>@import url('https://fonts.googleapis.com/css2?family=Manrop
 
 def card(title: str, body_html: str, note: str = "") -> str:
     """White card with a serif heading. body_html must already be escaped/built by this module."""
-    n = f'<div class="sk-note">{esc(note)}</div>' if note else ""
-    h = f"<h2>{esc(title)}</h2>" if title else ""
-    return f'<div class="sk-card">{h}{body_html}{n}</div>'
+    h = f"<h2>{esc(title)}</h2>" if title else ""   # card notes intentionally not rendered
+    return f'<div class="sk-card">{h}{body_html}</div>'
 
 
 def breadcrumb(text: str, code: str = "") -> str:
@@ -389,7 +388,7 @@ def breadcrumb(text: str, code: str = "") -> str:
 
 
 def hero(h1: str, lead: str) -> str:
-    return f'<div class="sk-h1">{esc(h1)}</div>' + (f'<div class="sk-lead">{esc(lead)}</div>' if lead else "")
+    return f'<div class="sk-h1">{esc(h1)}</div>'   # lead paragraphs intentionally not rendered
 
 
 def score_bar(score: float | None, threshold: float) -> str:
