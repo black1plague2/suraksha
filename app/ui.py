@@ -4,7 +4,7 @@ Pure functions + one CSS string; no data access, no external assets (system font
 what Streamlit-in-Snowflake ships. Every builder returns a SINGLE-LINE html string (markdown ends an html block at a
 blank line and treats 4-space indents as code), and every dynamic value is escaped.
 
-Look: warm stone page, white 16px cards without borders, deep-teal accent, soft coral instead of alarm red.
+Look: cool grey-blue page, white borderless cards (navy-tinted shadows, light from above), navy accent, apricot instead of alarm red.
 The page background/ink are set explicitly so the app also reads correctly if a viewer forces the dark theme.
 """
 from __future__ import annotations
@@ -63,13 +63,13 @@ _CSS = """
 [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p {color:var(--ink2);}
 /* top bar */
 .sk-top {display:flex; align-items:center; gap:.8rem; flex-wrap:wrap; padding:.1rem 0 1.2rem 0;}
-.sk-logo {width:2.1rem; height:2.1rem; border-radius:.65rem; background:var(--accent); color:var(--card); font-family:var(--serif);
+.sk-logo {width:2.1rem; height:2.1rem; border-radius:.5rem; background:var(--accent); color:var(--card); font-family:var(--serif);
   font-weight:700; display:flex; align-items:center; justify-content:center; font-size:1.2rem;}
 .sk-name {font-family:var(--serif); font-size:1.3rem; font-weight:700; line-height:1.1; color:var(--ink);}
 .sk-tag {font-size:.8rem; color:var(--mute);}
 .sk-badges {margin-left:auto; display:flex; gap:.45rem; flex-wrap:wrap;}
-.sk-badge {font-size:.76rem; padding:.2rem .7rem; border-radius:999px; background:var(--stone); color:var(--ink2);}
-.sk-badge.live, .sk-badge.mem {background:var(--green-bg); color:var(--green);}
+.sk-badge {font-size:.72rem; font-weight:700; letter-spacing:.04em; padding:.18rem .55rem; border-radius:3px; background:var(--stone); color:var(--ink2); border-left:3px solid var(--dot);}
+.sk-badge.live, .sk-badge.mem {background:var(--green-bg); color:var(--green); border-left-color:var(--green);}
 /* headings */
 .sk-title {font-family:var(--serif); font-size:2.1rem; font-weight:600; line-height:1.2; margin:.2rem 0 .3rem 0; color:var(--ink);}
 .sk-sub {color:var(--ink2); margin:0 0 1.4rem 0; max-width:46rem; line-height:1.6;}
@@ -79,7 +79,7 @@ _CSS = """
 .sk-h1 {font-family:var(--serif); font-size:2rem; font-weight:600; line-height:1.15; margin:.2rem 0 .8rem 0; color:var(--ink); max-width:48rem;}
 .sk-lead {font-size:1.05rem; line-height:1.65; color:var(--ink2); max-width:50rem; margin:0 0 1.4rem 0;}
 /* cards */
-.sk-card {background:var(--card); border-radius:20px; padding:1.4rem 1.6rem; margin:0 0 1.4rem 0; box-shadow:0 1px 2px rgba(34,38,43,.04); color:var(--ink);}
+.sk-card {background:var(--card); border-radius:18px; padding:1.4rem 1.6rem; margin:0 0 1.4rem 0; box-shadow:0 1px 2px rgba(36,55,94,.07); color:var(--ink);}
 .sk-card h2 {font-family:var(--serif); font-size:1.35rem; font-weight:600; margin:0 0 .9rem 0; color:var(--ink); line-height:1.25;}
 .sk-card p {margin:.2rem 0 .6rem 0;}
 .sk-note {font-size:.84rem; color:var(--mute); margin-top:.8rem; line-height:1.5;}
@@ -88,7 +88,7 @@ _CSS = """
 /* summary tiles */
 .sk-tiles {display:grid; grid-template-columns:repeat(3,1fr); gap:1.2rem; margin:0 0 1.6rem 0;}
 @media (max-width: 900px) {.sk-tiles {grid-template-columns:1fr;}}
-.sk-tile {background:var(--card); border-radius:16px; padding:1.1rem 1.3rem; box-shadow:0 1px 2px rgba(34,38,43,.04);}
+.sk-tile {background:var(--card); border-radius:16px; padding:1.1rem 1.3rem; box-shadow:0 1px 2px rgba(36,55,94,.07);}
 .sk-tile small {display:block; font-size:.84rem; color:var(--ink2); margin-bottom:.3rem;}
 .sk-tile b {display:block; font-family:var(--serif); font-size:1.7rem; font-weight:600; line-height:1.2; color:var(--ink);}
 .sk-tile b.bad {color:var(--coral);} .sk-tile b.warn {color:var(--amber);} .sk-tile b.ok {color:var(--green);}
@@ -99,11 +99,11 @@ _CSS = """
 .sk-bar > u {position:absolute; top:-.28rem; bottom:-.28rem; width:2px; background:var(--ink2); opacity:.7;}
 .sk-bar > em {position:absolute; top:.8rem; font-size:.7rem; font-style:normal; color:var(--mute); transform:translateX(-50%); white-space:nowrap;}
 /* pills */
-.sk-pill {display:inline-block; font-size:.8rem; font-weight:600; padding:.15rem .7rem; border-radius:999px; white-space:nowrap;}
+.sk-pill {display:inline-block; font-size:.8rem; font-weight:600; padding:.15rem .6rem; border-radius:6px; letter-spacing:.02em; white-space:nowrap;}
 .sk-pill.ok {color:var(--green); background:var(--green-bg);} .sk-pill.warn {color:var(--amber); background:var(--amber-bg);}
 .sk-pill.bad {color:var(--coral); background:var(--coral-bg);} .sk-pill.neutral {color:var(--ink2); background:var(--stone);}
 /* soft callout */
-.sk-callout {background:var(--coral-bg); color:var(--coral); padding:.9rem 1.1rem; border-radius:14px; font-size:1rem; line-height:1.55; margin:.2rem 0 1.2rem 0;}
+.sk-callout {background:var(--coral-bg); color:var(--coral); padding:.9rem 1.1rem; border-radius:10px; font-size:1rem; line-height:1.55; margin:.2rem 0 1.2rem 0;}
 .sk-callout.ok {background:var(--green-bg); color:var(--green);} .sk-callout.warn {background:var(--amber-bg); color:var(--amber);}
 .sk-callout.plain {background:var(--stone); color:var(--ink);}
 .sk-callout small {display:block; opacity:.8; margin-bottom:.15rem; font-size:.78rem;}
@@ -117,13 +117,13 @@ _CSS = """
 /* two soft panels */
 .sk-two {display:grid; grid-template-columns:1fr 1fr; gap:1rem;}
 @media (max-width: 800px) {.sk-two {grid-template-columns:1fr;}}
-.sk-panel {background:var(--stone); border-radius:14px; padding:1rem 1.1rem;}
+.sk-panel {background:var(--stone); border-radius:10px; padding:1rem 1.1rem;}
 .sk-panel small {display:block; color:var(--mute); font-size:.8rem;}
 .sk-panel h3 {font-family:var(--serif); font-size:1.1rem; font-weight:600; margin:.15rem 0 .5rem 0; color:var(--ink);}
 .sk-panel p {margin:.15rem 0; font-size:.92rem; color:var(--ink2);}
 /* ownership chain */
 .sk-chain {display:flex; align-items:center; flex-wrap:nowrap; gap:.4rem; margin:.2rem 0; overflow-x:auto;}
-.sk-node {background:var(--stone); border-radius:14px; padding:.6rem .8rem; flex:1 1 0; min-width:0; text-align:center;}
+.sk-node {background:var(--stone); border-radius:10px; padding:.6rem .8rem; flex:1 1 0; min-width:0; text-align:center;}
 .sk-node b {display:block; font-size:.95rem; color:var(--ink);} .sk-node span {font-size:.74rem; color:var(--mute);}
 .sk-node.hot {background:var(--coral-bg); border-radius:999px; padding:.6rem 1rem; text-align:center;}
 .sk-node.hot b {color:var(--coral);}
@@ -145,7 +145,7 @@ _CSS = """
 .sk-tl li small {display:block; color:var(--mute); font-size:.78rem;}
 /* chips */
 .sk-chips {display:flex; flex-wrap:wrap; gap:.4rem; margin:.3rem 0 .6rem 0;}
-.sk-chip {font-size:.78rem; padding:.2rem .65rem; border-radius:999px; background:var(--stone); color:var(--ink2);}
+.sk-chip {font-size:.78rem; padding:.2rem .6rem; border-radius:6px; background:var(--stone); color:var(--ink2);}
 .sk-chip b {font-weight:600; margin-right:.3rem; color:var(--ink);}
 /* html tables */
 .sk-tablewrap {overflow-x:auto;}
@@ -154,15 +154,15 @@ _CSS = """
 .sk-table td {padding:.5rem .6rem; border-bottom:1px solid var(--line); vertical-align:top;}
 .sk-code {font-family:ui-monospace,Menlo,Consolas,monospace; font-size:.8rem; background:var(--stone); padding:.05rem .35rem; border-radius:.3rem;}
 /* Streamlit widgets in the same language */
-[data-testid="stMetric"] {background:var(--card); border-radius:16px; padding:1rem 1.2rem; box-shadow:0 1px 2px rgba(34,38,43,.04);}
+[data-testid="stMetric"] {background:var(--card); border-radius:16px; padding:1rem 1.2rem; box-shadow:0 1px 2px rgba(36,55,94,.07);}
 [data-testid="stMetricValue"] {font-family:var(--serif); font-weight:600; font-size:1.6rem; font-variant-numeric:tabular-nums;}
 [data-testid="stMetricValue"] > div {overflow:visible; text-overflow:clip; white-space:normal;}
 [data-testid="stMetricLabel"] p, [data-testid="stMetricLabel"] div {white-space:normal; overflow:visible; text-overflow:clip; color:var(--ink2);}
-[data-testid="stExpander"] {background:var(--card); border:none !important; border-radius:16px; box-shadow:0 1px 2px rgba(34,38,43,.04);}
+[data-testid="stExpander"] {background:var(--card); border:none !important; border-radius:16px; box-shadow:0 1px 2px rgba(36,55,94,.07);}
 [data-testid="stExpander"] summary {padding:1rem 1.4rem;}
 [data-testid="stExpander"] summary p {font-family:var(--serif); font-size:1.1rem; font-weight:600; color:var(--ink);}
 [data-testid="stExpanderDetails"] {padding:0 1.4rem 1.2rem 1.4rem;}
-[data-testid="stForm"] {background:var(--card); border:none !important; border-radius:16px; padding:1.3rem 1.4rem; box-shadow:0 4px 18px rgba(34,38,43,.07);}
+[data-testid="stForm"] {background:var(--card); border:none !important; border-radius:16px; padding:1.3rem 1.4rem; box-shadow:0 4px 18px rgba(36,55,94,.10);}
 [data-testid="stColumn"]:has(.sk-sticky), [data-testid="column"]:has(.sk-sticky) {position:sticky; top:1rem; align-self:flex-start;}
 .sk-form-note {font-size:.9rem; color:var(--ink2); margin:.1rem 0 .9rem 0;}
 [data-testid="stAlert"], [data-testid="stAlertContainer"] {border-radius:14px;}
@@ -170,10 +170,10 @@ _CSS = """
 button[kind="primary"], button[kind="primaryFormSubmit"] {background:var(--accent); border-color:var(--accent); color:var(--card); border-radius:12px;}
 button[kind="secondary"], button[kind="secondaryFormSubmit"] {border-radius:12px;}
 [data-testid="stDataFrame"] {border-radius:14px; overflow:hidden;}
-.sk-report {font-family:var(--serif); background:var(--stone); border-radius:14px; padding:1.2rem 1.4rem; line-height:1.7; color:var(--ink);}
+.sk-report {font-family:var(--serif); background:var(--stone); border-radius:10px; padding:1.2rem 1.4rem; line-height:1.7; color:var(--ink);}
 .sk-side-brand {font-family:var(--serif); font-size:1.3rem; font-weight:700; color:var(--ink);}
 .sk-side-purpose {font-size:.82rem; color:var(--ink2); margin:.4rem 0 .9rem 0; line-height:1.45;}
-.sk-banner {padding:.55rem .8rem; border-radius:12px; font-size:.84rem; font-weight:600; margin:.4rem 0;}
+.sk-banner {padding:.55rem .8rem; border-radius:8px; font-size:.84rem; font-weight:600; margin:.4rem 0;}
 .sk-banner.ok {color:var(--green); background:var(--green-bg);} .sk-banner.bad {color:var(--coral); background:var(--coral-bg);}
 
 /* v3: meta line, evidence block, section card, nav pills */
@@ -194,12 +194,52 @@ button[kind="secondary"], button[kind="secondaryFormSubmit"] {border-radius:12px
 [data-testid="stRadio"] label[data-baseweb="radio"], [data-testid="stRadio"] label[data-testid="stRadioOption"] {background:transparent; padding:.3rem .7rem; border-radius:999px; margin:0; white-space:nowrap;}
 [data-testid="stRadio"] label[data-baseweb="radio"] > div:first-child, [data-testid="stRadio"] label[data-testid="stRadioOption"] > div > div:first-child {display:none !important;}
 [data-testid="stRadio"] label[data-baseweb="radio"] p, [data-testid="stRadio"] label[data-testid="stRadioOption"] p {font-size:.88rem; color:var(--ink2);}
-[data-testid="stRadio"] label[data-baseweb="radio"]:has(input:checked), [data-testid="stRadio"] label[data-testid="stRadioOption"]:has(input:checked) {background:var(--card); box-shadow:0 1px 3px rgba(28,32,48,.12);}
+[data-testid="stRadio"] label[data-baseweb="radio"]:has(input:checked), [data-testid="stRadio"] label[data-testid="stRadioOption"]:has(input:checked) {background:var(--card); box-shadow:0 1px 3px rgba(36,55,94,.16);}
 [data-testid="stRadio"] label:has(input:checked) p {color:var(--ink); font-weight:700;}
 [data-baseweb="input"], [data-baseweb="textarea"], [data-baseweb="select"] > div {background:var(--bg) !important; border-radius:12px !important;}
 button[kind="primary"] p, button[kind="primaryFormSubmit"] p {color:var(--card) !important;}
 [data-testid="stTextInputRootElement"], [data-testid="stTextAreaRootElement"] {background:var(--bg) !important; border:1px solid var(--border) !important; border-radius:12px !important;}
 [data-testid="stTextInputRootElement"] input, [data-testid="stTextAreaRootElement"] textarea {background:transparent !important; color:var(--ink) !important;}
+
+/* v5 taste pass: numerals, tracking, balance, states, texture */
+body {font-variant-numeric:tabular-nums;}
+.sk-title, .sk-h1, .sk-section, .sk-h2, .sk-h3, .sk-card h2, .sk-panel h3, [data-testid="stExpander"] summary p {text-wrap:balance;}
+.sk-title, .sk-h1 {letter-spacing:-.02em;}
+.sk-score {letter-spacing:-.03em;}
+.sk-section, .sk-h2, .sk-card h2, .sk-tile b {letter-spacing:-.01em;}
+.sk-tile small, .sk-facts div span, .sk-sec small, .sk-panel small, .sk-table th, .sk-crumb, .sk-meta {letter-spacing:.02em;}
+.sk-table th {letter-spacing:.04em;}
+.sk-table td, .sk-tile b, .sk-facts div b, .sk-row .w, .sk-chip, .sk-pill, .sk-meta, .sk-crumb, .sk-edge em,
+[data-testid="stDataFrame"], [data-testid="stMetricValue"], [data-testid="stRadio"] label p {font-variant-numeric:tabular-nums lining-nums;}
+.sk-sub, .sk-lead, .sk-note {text-wrap:pretty;}
+/* one light direction (from above), navy-tinted */
+.sk-card, .sk-tile, [data-testid="stMetric"], [data-testid="stExpander"] {transition:box-shadow .2s ease, transform .2s ease;}
+.sk-tile:hover, [data-testid="stMetric"]:hover {box-shadow:0 2px 8px rgba(36,55,94,.10);}
+/* grain: pure CSS, very light, never intercepts input */
+.stApp::before {content:""; position:fixed; inset:0; z-index:0; pointer-events:none; opacity:.035;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");}
+/* buttons, nav pills, selects: hover / pressed / focus */
+button[kind], [data-testid="stRadio"] label, [data-baseweb="select"] > div, [data-testid="stTextInputRootElement"], [data-testid="stTextAreaRootElement"], [data-testid="stExpander"] summary {transition:background-color .2s ease, box-shadow .2s ease, transform .2s ease, border-color .2s ease, color .2s ease;}
+button[kind="primary"]:hover, button[kind="primaryFormSubmit"]:hover {background:#1B2C4D; border-color:#1B2C4D; box-shadow:0 2px 8px rgba(36,55,94,.28);}
+button[kind="secondary"]:hover, button[kind="secondaryFormSubmit"]:hover {border-color:var(--accent); color:var(--accent); background:var(--accent-soft);}
+button[kind]:active {transform:translateY(1px) scale(.98); box-shadow:none;}
+button[kind]:focus-visible, [data-baseweb="select"]:focus-within > div, [data-testid="stExpander"] summary:focus-visible {outline:2px solid var(--accent) !important; outline-offset:2px; box-shadow:0 0 0 4px var(--accent-soft) !important;}
+[data-testid="stTextInputRootElement"]:focus-within, [data-testid="stTextAreaRootElement"]:focus-within {border-color:var(--accent) !important; box-shadow:0 0 0 3px var(--accent-soft);}
+[data-testid="stRadio"] label:hover {background:rgba(36,55,94,.07);}
+[data-testid="stRadio"] label:has(input:checked):hover {background:var(--card);}
+[data-testid="stRadio"] label:active {transform:translateY(1px) scale(.98);}
+[data-testid="stRadio"] label:has(input:focus-visible) {outline:2px solid var(--accent); outline-offset:2px;}
+[data-testid="stRadio"] label:has(input:checked) {box-shadow:inset 0 -2px 0 var(--accent), 0 1px 3px rgba(36,55,94,.16);}
+[data-testid="stExpander"] summary:hover {background:rgba(36,55,94,.04); border-radius:16px;}
+/* skeleton-style loading instead of a spinner */
+[data-testid="stSpinner"] {min-height:2.4rem; border-radius:10px; padding:.6rem 1rem; color:var(--mute);
+  background:linear-gradient(90deg,var(--line) 25%,var(--accent-soft) 50%,var(--line) 75%); background-size:200% 100%; animation:sk-shimmer 1.4s ease-in-out infinite;}
+[data-testid="stSpinner"] svg, [data-testid="stSpinner"] i {opacity:0;}
+@keyframes sk-shimmer {0% {background-position:200% 0;} 100% {background-position:-200% 0;}}
+/* composed empty / inline error states */
+[data-testid="stAlert"] {border:none; box-shadow:inset 3px 0 0 currentColor;}
+[data-testid="stAlert"] p {font-size:.95rem;}
+@media (prefers-reduced-motion: reduce) {* {transition:none !important; animation:none !important;}}
 </style>
 """
 CSS = _CSS.replace("/*ROOT*/", root_vars(_P))

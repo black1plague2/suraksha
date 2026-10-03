@@ -30,3 +30,26 @@
 - Behaviour unchanged: DECIDE_CASE/decide() errors verbatim in st.error, Verify audit chain button, memory + Snowflake paths.
 - Landing KPI "Detection · false positives" counts flagged (not Clear) vs ground-truth labels (matches PITCH numbers).
 - Tests: smoke tests updated for new nav (`at.radio`), labels and headings; new tests for ui helpers. Suite green (408).
+
+## Round 5 (taste-skill audit)
+
+Scope: scan -> diagnose -> fix on the existing stack (no rewrite). Identity kept: Source Serif 4 + Manrope, "Midnight & apricot" tokens, short headings, no explanatory sentences, Bank A/B/C, no invented data.
+
+Audit (problem -> fix), all in `app/ui.py` unless noted:
+- Numbers in proportional figures -> `tabular-nums lining-nums` on body, tables, tiles, facts, chips, pills, nav, metrics.
+- Orphaned words in headings -> `text-wrap: balance` (headings), `pretty` (sub/lead/notes).
+- No tracking tuning -> -0.02em on h1/title, -0.03em on the big score, +0.02-0.04em on small labels and table headers.
+- Shadows were neutral black-ish and inconsistent -> one navy-tinted family (rgba 36,55,94), light from above; subtle hover lift on tiles/metrics.
+- Uniform radius -> tighter inside (callout/panel/node/report 10px, banner 8px, pills/chips 6px, logo 8px), softer containers (cards 18px).
+- Pill "Synthetic data only"/"Memory backend" badges and status pills -> square flag-style badges with a left color edge; status pills 6px radius. Logo already a rounded square.
+- Buttons/nav pills/selects/inputs lacked hover, pressed and focus states -> hover (primary darkens, secondary tints), `:active` translateY(1px) scale(.98), visible `:focus-visible` ring (accent outline + soft halo), 200ms transitions, reduced-motion respected.
+- Nav showed only a white pill for current page -> adds an accent underline inset to the checked pill.
+- Flat page -> very light pure-CSS grain (SVG feTurbulence data URI, opacity .035, fixed, pointer-events none).
+- Spinner -> shimmer skeleton bar on `stSpinner` (cache-resource loading text kept).
+- Alerts -> borderless with a left accent edge (inline error/empty states already used st.error/st.info with next-step wording).
+- Dead link: "<- Back to cases" in `app/streamlit_app.py` was plain text -> now "Case N of M · ...".
+- Favicon + page title: already `st.set_page_config(page_title="Suraksha", page_icon=shield)`, kept.
+- Tests: new CSS/no-dead-link check in `tests/unit/test_app_smoke.py`.
+
+Skipped (and why): picsum/stock imagery, GSAP/scroll/parallax, overlap/broken-grid layouts, text mask reveals (not a calm compliance tool; Snowflake has no external network); legal/cookie footers and custom 404 (not applicable); new fonts (user-approved identity); new packages; sidebar change (already top nav).
+Compatibility: only plain CSS (`:has`, `:focus-visible` degrade harmlessly); no new Streamlit APIs; fonts still memory-mode only, system stacks in Snowflake.

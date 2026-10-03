@@ -289,3 +289,15 @@ def test_analyst_kpis_and_examples_render():
     next(b for b in at.button if b.label.startswith("Who else is linked to")).click().run()
     assert not at.exception, at.exception
     assert at.text_input(key="inv_q").value.startswith("Who else is linked to")
+
+
+def test_taste_pass_css_and_no_dead_back_link():
+    """Round 5: states + numerals in the CSS, flag-style badges, and no non-clickable '<- Back' text."""
+    sys.path.insert(0, str(Path(APP).parent))
+    import ui
+    css = ui.CSS
+    for needle in ("tabular-nums", "text-wrap:balance", ":focus-visible", ":active", "sk-shimmer", "prefers-reduced-motion"):
+        assert needle in css, needle
+    assert "999px" not in css.split(".sk-badge {")[1].split("}")[0]
+    src = Path(APP).read_text(encoding="utf-8")
+    assert "Back to cases" not in src

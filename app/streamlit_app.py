@@ -925,7 +925,7 @@ def page_mlro(app) -> None:
     draft = store.get_report(case.report_id)
     left, right = st.columns([5, 3], gap="large")
     with left:
-        st.markdown(ui.breadcrumb(f"← Back to cases · {ids.index(cid) + 1} of {len(ids)} "
+        st.markdown(ui.breadcrumb(f"Case {ids.index(cid) + 1} of {len(ids)} · "
                                   f"{'waiting for you' if only_pending else 'shown'}"), unsafe_allow_html=True)
         render_hero(app, case)
         rows, _s, _b = rule_rows(app, case.request_id)
