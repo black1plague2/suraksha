@@ -2,6 +2,9 @@
 
 **Stops the same shipment from being used to borrow money twice.**
 
+**▶ Try it live: [suraksha01.streamlit.app](https://suraksha01.streamlit.app/)** — runs on demo data, no login needed.
+(If it ever says it has gone to sleep, click the button; it's back in about 30 seconds.)
+
 *Suraksha* means "protection". It helps banks spot when a company borrows against goods that were already
 promised to another bank — and it explains every warning in plain words so a person can make the final call.
 
