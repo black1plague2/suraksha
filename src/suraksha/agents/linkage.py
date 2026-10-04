@@ -18,6 +18,9 @@ def _cname(store: Store, company_id: str) -> str:
     return (store.get_company(company_id) or {}).get("name", company_id)
 
 
+_LINK_RANK = {"UBO_OF": 0, "OWNS": 1, "DIRECTOR_OF": 2, "SHAREHOLDER_OF": 3, "REGISTERED_AT": 4, "HAS_PHONE": 5}
+
+
 def linked_entities(company_id: str, store: Store, hops: int = 2) -> list[dict]:
     """Companies reachable within `hops` edges; `via` = shortest connecting edge list."""
     g = build_graph(store)
@@ -27,9 +30,11 @@ def linked_entities(company_id: str, store: Store, hops: int = 2) -> list[dict]:
         cid = c["company_id"]
         if cid == company_id:
             continue
-        ps = shortest_paths(g, start, f"company:{cid}", hops, limit=1)
+        ps = shortest_paths(g, start, f"company:{cid}", hops, limit=5)
         if ps:
-            out.append({"company_id": cid, "name": c.get("name", cid), "via": ps[0]})
+            # strongest link first (a shared owner beats a shared phone), then the shorter route
+            best = min(ps, key=lambda p: (max(_LINK_RANK.get(e.relation, 6) for e in p), len(p)))
+            out.append({"company_id": cid, "name": c.get("name", cid), "via": best})
     out.sort(key=lambda r: (len(r["via"]), r["company_id"]))
     log.info("linked_entities", extra={"ctx": {"company_id": company_id, "hops": hops, "found": len(out)}})
     return out

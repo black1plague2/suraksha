@@ -339,6 +339,33 @@ def draw_path(store, path) -> None:
     st.graphviz_chart(chr(10).join(dot))
 
 
+_REL_WORDS = {"UBO_OF": "is the beneficial owner of", "DIRECTOR_OF": "is a director of",
+              "SHAREHOLDER_OF": "is a shareholder of", "OWNS": "owns", "HAS_PHONE": "uses phone",
+              "REGISTERED_AT": "is registered at"}
+_EDGE_RE = re.compile(r"^(\w+):(\S+) -(\w+)-> (\w+):(.+)$")
+
+
+def plain_edge(store, text: str) -> str:
+    """'person:P0464 -UBO_OF-> company:C0179' -> 'Harish Sharma is the beneficial owner of Platinum Steel LLP'."""
+    m = _EDGE_RE.match(str(text))
+    if not m:
+        return str(text)
+
+    def node(kind, ident):
+        if kind == "company":
+            return company_name(store, ident)
+        if kind == "person":
+            p = store.get_person(ident)
+            return (p or {}).get("name", ident)
+        if kind == "address":
+            a = store.get_address(ident)
+            return (a or {}).get("line", ident)
+        return ident
+
+    sk, si, rel, dk, di = m.groups()
+    return f"{node(sk, si)} {_REL_WORDS.get(rel, rel.lower().replace('_', ' '))} {node(dk, di)}"
+
+
 def draw_chain(edges_text: list[str]) -> None:
     """Render describe_edge() strings as a left-to-right node chain (graphviz)."""
     if not edges_text:
@@ -375,7 +402,7 @@ def subhead(title: str) -> None:
 def pretty_requests(df: pd.DataFrame):
     """Friendly, display-only table: few columns, short amounts, soft status pills."""
     out = pd.DataFrame({
-        "Request": df["request_id"], "Borrower": df["borrower"], "Cargo": df["commodity"],
+        "Request": df["request_id"], "Borrower": df["borrower"], "Cargo": [ui.calm(x) for x in df["commodity"]],
         "Amount": [ui.fmt_compact(a, c) for a, c in zip(df["amount"], df["currency"])],
         "Status": [ui.status_label(x) for x in df["status"]],
     })
@@ -477,6 +504,16 @@ def page_investigator(app) -> None:
     comps = store.list_companies()
     if len(comps) >= 2:
         a, b = comps[0]["name"], comps[1]["name"]
+        try:  # prefer the pair from the first open case, so the example shows a real link
+            for res in (app.get("results") or {}).values():
+                inv = getattr(res, "investigation", None)
+                if (getattr(res, "case", None) is not None and inv is not None and inv.paths
+                        and inv.counterparty_company_id and inv.counterparty_company_id != inv.borrower_id):
+                    a = company_name(store, inv.borrower_id)
+                    b = company_name(store, inv.counterparty_company_id)
+                    break
+        except Exception:
+            pass
         examples = [f"Who else is linked to {a}?", f"Directors of {a}", f"Path between {a} and {b}"]
         for col, ex in zip(st.columns(len(examples)), examples):
             col.button(ex, key=f"inv_ex_{examples.index(ex)}", use_container_width=True,
@@ -494,14 +531,15 @@ def page_investigator(app) -> None:
             if ans["intent"] == "path":
                 for r in ans["rows"][:3]:
                     st.markdown(f"**Ownership path {r['from']} → {r['to']}**")
-                    draw_chain(r["edges"])
+                    draw_chain([plain_edge(store, x) for x in r["edges"]])
             elif ans["intent"] == "linked_entities" and ans["rows"]:
                 sel = st.selectbox("Show path to", [f"{r['company_id']} {r['name']}" for r in ans["rows"]],
                                    key="inv_sel")
                 r = next(r for r in ans["rows"] if sel.startswith(r["company_id"]))
-                draw_chain(r["via"])
+                draw_chain([plain_edge(store, x) for x in r["via"]])
             if ans["rows"]:
-                flat = [{k: (" | ".join(v) if isinstance(v, list) else v) for k, v in r.items()} for r in ans["rows"]]
+                flat = [{k: (" · ".join(plain_edge(store, x) for x in v) if isinstance(v, list) else v)
+                         for k, v in r.items()} for r in ans["rows"]]
                 subhead("Rows")
                 st.dataframe(pd.DataFrame(flat), use_container_width=True, hide_index=True)
             if ans["citations"]:

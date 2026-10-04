@@ -488,4 +488,4 @@ def calm(text, vessel=False):
     if vessel:
         import re as _re
         t = _re.sub(r"^(M\s*/\s*V|MV|M\.V\.)\s+", "", t, flags=_re.I)
-    return t.title() if t.isupper() else t
+    return t.title() if (t.isupper() or t.islower()) else t
