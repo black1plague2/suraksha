@@ -109,18 +109,18 @@ def decide(case_id: str, decision: Decision, officer: str, reason: str, store: A
     name = _normalise_officer(officer)
     decision = Decision(decision)
     reason = (reason or "").strip()
-    if decision is Decision.REJECT and not reason:
+    if decision == Decision.REJECT and not reason:
         raise ValueError("a reason is required to reject")
     case = store.get_case(case_id)
     if case is None:
         raise ValueError(f"unknown case {case_id}")
-    if case.status is not CaseStatus.PENDING_APPROVAL:
+    if case.status != CaseStatus.PENDING_APPROVAL:
         raise ValueError(f"case {case_id} already decided ({case.status.value})")
     actor = f"officer:{name}"
     now = datetime.now(timezone.utc)
     case.decided_by, case.decided_at = actor, now
     case.reason = reason or None
-    if decision is Decision.APPROVE:
+    if decision == Decision.APPROVE:
         case.status, case.hold_recommended = CaseStatus.FILED, True
         store.save_case(case)
         audit.append(actor, "CASE_APPROVED", case_id, {"reason": reason})

@@ -165,7 +165,7 @@ def snowflake_rows(store) -> list[dict]:
         pstatus = PipelineStatus(r["status"]) if r.get("status") else PipelineStatus.CLEAR
         label = STATUS_LABEL[pstatus]
         case = cases.get(r["request_id"])
-        if case is not None and case.status is not CaseStatus.PENDING_APPROVAL:
+        if case is not None and case.status != CaseStatus.PENDING_APPROVAL:
             label = case.status.value
         out.append({**r, "py_rules": list(rules or []), "pipeline_status": pstatus, "label": label,
                     "case": case})
@@ -219,7 +219,7 @@ def effective_status(app, rid: str) -> str:
     res = app["results"][rid]
     if res.case is not None:
         case = app["store"].get_case(res.case.case_id)
-        if case is not None and case.status is not CaseStatus.PENDING_APPROVAL:
+        if case is not None and case.status != CaseStatus.PENDING_APPROVAL:
             return case.status.value
     return STATUS_LABEL[res.status]
 
@@ -231,12 +231,12 @@ def company_name(store, cid: str) -> str:
 def plain_reason(app, rid: str) -> str:
     if app["mode"] == "snowflake":
         r = next(x for x in app["rows"] if x["request_id"] == rid)
-        if r["pipeline_status"] is PipelineStatus.CLEAR:
+        if r["pipeline_status"] == PipelineStatus.CLEAR:
             return "No matching pledge found at other consortium banks."
         score = f" Confidence {r['py_score']:.2f} ({r['py_band']})." if r.get("py_score") is not None else ""
         return "Flagged by the pipeline: " + (", ".join(r["py_rules"]) or "no rules recorded") + "." + score
     res = app["results"][rid]
-    if res.status is PipelineStatus.CLEAR:
+    if res.status == PipelineStatus.CLEAR:
         return "No matching pledge found at other consortium banks."
     inv, conf = res.investigation, res.confidence
     bits = []
@@ -513,7 +513,7 @@ def page_investigator(app) -> None:
     st.divider()
     subhead("Needs evidence")
     if app["mode"] == "snowflake":
-        weak_rows = [r for r in app["rows"] if r["pipeline_status"] is PipelineStatus.NEED_MORE_EVIDENCE]
+        weak_rows = [r for r in app["rows"] if r["pipeline_status"] == PipelineStatus.NEED_MORE_EVIDENCE]
         if not weak_rows:
             st.caption("None waiting.")
         for r in weak_rows:
@@ -521,7 +521,7 @@ def page_investigator(app) -> None:
             with st.expander(f"{r['request_id']} · score {score} ({r.get('py_band')})"):
                 st.write(plain_reason(app, r["request_id"]))
         return
-    weak = [(rid, r) for rid, r in app["results"].items() if r.status is PipelineStatus.NEED_MORE_EVIDENCE]
+    weak = [(rid, r) for rid, r in app["results"].items() if r.status == PipelineStatus.NEED_MORE_EVIDENCE]
     if not weak:
         st.caption("None waiting.")
     for rid, r in weak:
@@ -831,7 +831,7 @@ def render_decision(app, case) -> None:
     ok, n = audit_status(app)
     log_note = (f'<div class="sk-form-note"><span class="sk-tick {"ok" if ok else "bad"}">'
                 f'{"✓ Log verified" if ok else "Log check failed"} · {n} records</span></div>')
-    if case.status is CaseStatus.PENDING_APPROVAL:
+    if case.status == CaseStatus.PENDING_APPROVAL:
         with st.form(f"decide_{cid}"):
             st.markdown(_evidence_block(score, thr) + '<div class="sk-h2">Decision</div>', unsafe_allow_html=True)
             officer = st.text_input("Your name", key=f"officer_{cid}")
@@ -900,7 +900,7 @@ def page_mlro(app) -> None:
     if st.session_state.get("decided_msg"):
         st.success(st.session_state.pop("decided_msg"))
     cases = store.list_cases()
-    pending = [c for c in cases if c.status is CaseStatus.PENDING_APPROVAL]
+    pending = [c for c in cases if c.status == CaseStatus.PENDING_APPROVAL]
     if not cases:
         header("Cases")
         st.info("No cases yet.")

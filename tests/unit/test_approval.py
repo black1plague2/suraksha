@@ -110,3 +110,20 @@ def test_unknown_case(env):
     st, a = env
     with pytest.raises(ValueError):
         decide("nope", Decision.APPROVE, "Priya", "", st, a)
+
+
+def test_decide_works_when_case_status_comes_from_a_reloaded_module():
+    """Live bug (Community Cloud): Streamlit reloaded suraksha.models while cached cases kept the OLD CaseStatus
+    members, so `status is CaseStatus.PENDING_APPROVAL` was False and every case looked already decided."""
+    import importlib
+    from datetime import datetime, timezone
+    import suraksha.models as models
+    from suraksha.agents.approval import AuditLog, decide
+    from suraksha.store.memory import MemoryStore
+    old_pending = models.CaseStatus.PENDING_APPROVAL
+    importlib.reload(models)
+    assert old_pending is not models.CaseStatus.PENDING_APPROVAL      # the trap
+    st = MemoryStore()
+    st.save_case(models.Case("CASE-X", "X", "STR-X", old_pending, False))
+    case = decide("CASE-X", "APPROVE", "Priya Nair", "ok", st, AuditLog(st))
+    assert case.status == "FILED" and case.hold_recommended
